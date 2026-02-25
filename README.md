@@ -56,7 +56,6 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - `NEXT_PUBLIC_CROSSMINT_API_KEY`
 - `NEXT_PUBLIC_CROSSMINT_EVM_CHAIN` (default: `base-sepolia`)
-- `NEXT_PUBLIC_MACHINES_PARTNER_BASE_URL` (optional override; default: `/api/partner/proxy`)
 - `NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID` (default: `84532`)
 - `NEXT_PUBLIC_EVM_RUSD_TOKEN` (default: sandbox rUSD on Base Sepolia)
 - `NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET` (`true` enables dev autofund on create deposit)

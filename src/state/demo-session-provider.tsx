@@ -45,6 +45,7 @@ type DemoSessionContextValue = {
 };
 
 const DemoSessionContext = createContext<DemoSessionContextValue | null>(null);
+const PARTNER_PROXY_BASE_URL = "/api/partner/proxy";
 
 function extractWalletAddress(wallet: unknown): string | null {
   if (!wallet || typeof wallet !== "object") return null;
@@ -228,9 +229,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
   const client = useMemo(() => {
     if (!session?.sessionToken) return null;
     return new MachinesPartnerClient({
-      baseUrl:
-        process.env.NEXT_PUBLIC_MACHINES_PARTNER_BASE_URL ??
-        "/api/partner/proxy",
+      // Always call partner routes through same-origin proxy to avoid CORS drift
+      // across Vercel deployment/preview URLs.
+      baseUrl: PARTNER_PROXY_BASE_URL,
       sessionToken: session.sessionToken,
     });
   }, [session]);
