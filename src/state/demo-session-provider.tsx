@@ -169,7 +169,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       setOnboarding({
         loading: false,
         step: "kyc",
-          kycStatus: null,
+        kycStatus: null,
         agreementsAccepted: null,
         error: null,
       });
