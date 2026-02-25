@@ -1,0 +1,36 @@
+{
+  "name": "crossmint-machines-cards-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EVM-first Crossmint wallet extension demo for Machines partner APIs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@crossmint/client-sdk-react-ui": "2.6.11",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "clsx": "^2.1.1",
+    "crypto-js": "^4.2.0",
+    "next": "15.2.8",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tweetnacl": "^1.0.3",
+    "viem": "^2.38.6",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/node": "^22.15.14",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.5"
+  }
+}
