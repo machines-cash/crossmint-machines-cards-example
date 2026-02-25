@@ -12,6 +12,7 @@ import { VirtualCard } from "@/components/machines/virtual-card";
 import { formatUsdCents, titleCaseStatus } from "@/lib/format";
 import { decryptCardSecrets } from "@/lib/card-secrets";
 import { MachinesPartnerError } from "@/lib/machines-partner-client";
+import { isUnsupportedDestinationNetwork } from "@/lib/networks";
 import { useDemoSession } from "@/state/demo-session-provider";
 import type { DepositAsset, DepositIntent, PartnerCard } from "@/types/partner";
 
@@ -54,6 +55,14 @@ const RUSD_TOKEN_ABI = [
     outputs: [{ type: "uint8" }],
   },
 ] as const;
+const TESTNET_AUTOFUND_ENABLED =
+  (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET ?? "true")
+    .trim()
+    .toLowerCase() === "true";
+const SERVER_AUTOFUND_FALLBACK_ENABLED =
+  (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK ?? "false")
+    .trim()
+    .toLowerCase() === "true";
 
 function limitFrequencyLabel(value: CardLimitFrequency) {
   if (value === "allTime") return "all time";
@@ -77,11 +86,6 @@ function shortId(value: string) {
 function getPartnerErrorCodes(cause: unknown) {
   if (!(cause instanceof MachinesPartnerError)) return [];
   return cause.details?.errors?.map((error) => error.code) ?? [];
-}
-
-function isUnsupportedNetwork(networkId: string) {
-  const normalized = networkId.trim().toLowerCase();
-  return normalized === "solana" || normalized === "stellar";
 }
 
 function isRetryableMissingContractError(cause: unknown) {
@@ -146,7 +150,7 @@ export default function AccountsPage() {
         .map((asset) => ({
           ...asset,
           networks: asset.networks.filter(
-            (network) => !isUnsupportedNetwork(network.id),
+            (network) => !isUnsupportedDestinationNetwork(network.id),
           ),
         }))
         .filter((asset) => asset.networks.length > 0),
@@ -340,6 +344,8 @@ export default function AccountsPage() {
         if (!isRetryableMissingContractError(cause)) {
           throw cause;
         }
+        // Contract provisioning can race the first deposit call in sandbox.
+        // Retry once after a short wait instead of forcing the user to click again.
         setSuccess("Setting up your deposit account...");
         await sleep(1500);
         createdDeposit = await submitDeposit();
@@ -348,9 +354,7 @@ export default function AccountsPage() {
       let autofundFailure: string | null = null;
       let autofundRecipientAddress: string | null = null;
       const shouldAutofund =
-        (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET ?? "true")
-          .trim()
-          .toLowerCase() === "true" &&
+        TESTNET_AUTOFUND_ENABLED &&
         depositNetwork.trim().toLowerCase() === "base" &&
         Number(process.env.NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID ?? 84532) === 84532;
 
@@ -365,20 +369,15 @@ export default function AccountsPage() {
 
       if (shouldAutofund && autofundRecipientAddress) {
         try {
-          const allowServerFallback =
-            (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK ?? "false")
-              .trim()
-              .toLowerCase() === "true";
-
-          let autofund = await createEmbeddedWalletAutofund({
+          const autofund = await createEmbeddedWalletAutofund({
             getOrCreateWallet,
             recipientAddress: autofundRecipientAddress,
             amountDollars: 100,
           }).catch(async (embeddedError) => {
-            if (!allowServerFallback) {
+            if (!SERVER_AUTOFUND_FALLBACK_ENABLED) {
               throw embeddedError;
             }
-            const fallback = await createAutofund({
+            const fallback = await createServerAutofund({
               recipientAddress: autofundRecipientAddress!,
               amountDollars: 100,
             }).catch((serverError) => {
@@ -658,7 +657,7 @@ type AutofundResponse = {
   transferTxHash: string;
 };
 
-async function createAutofund(input: {
+async function createServerAutofund(input: {
   recipientAddress: string;
   amountDollars: number;
 }): Promise<AutofundResponse> {
@@ -750,6 +749,7 @@ async function createEmbeddedWalletAutofund(input: {
   const recipientAddress = getAddress(input.recipientAddress);
   let transferTxHash: `0x${string}` = mintTxHash;
   if (walletAddress !== recipientAddress) {
+    // If mint landed in a different wallet address, forward funds to deposit destination.
     const transferAmount = parseUnits(String(input.amountDollars), Number(decimals));
     const transferTransaction = await evmWallet.sendTransaction({
       to: RUSD_TOKEN_ADDRESS,

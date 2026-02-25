@@ -8,6 +8,6 @@ export type EvmWithdrawalExecutionInput = {
 
 export async function executeEvmWithdrawalStub(_input: EvmWithdrawalExecutionInput) {
   throw new Error(
-    "EVM execution is intentionally scaffolded for phase 2. This Solana-first demo only executes Solana flows.",
+    "EVM onchain execution is scaffolded for a follow-up phase. This demo uses partner API withdrawals only.",
   );
 }

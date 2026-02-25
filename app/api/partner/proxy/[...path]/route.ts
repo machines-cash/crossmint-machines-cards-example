@@ -1,26 +1,5 @@
 import { NextResponse } from "next/server";
-
-function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
-}
-
-function resolvePartnerUrl(baseUrl: string, path: string) {
-  const normalizedBase = baseUrl.replace(/\/$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  if (
-    normalizedBase.endsWith("/partner/v1") &&
-    normalizedPath.startsWith("/partner/v1/")
-  ) {
-    return `${normalizedBase}${normalizedPath.slice("/partner/v1".length)}`;
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
-}
+import { requiredEnv, resolvePartnerUrl } from "@/lib/server/partner-http";
 
 type RouteContext = {
   params: Promise<{
@@ -43,6 +22,8 @@ async function proxy(request: Request, context: RouteContext) {
       );
     }
 
+    // Browser calls stay same-origin and this route forwards to Machines Partner API.
+    // This keeps partner keys server-side and avoids cross-origin preflight issues.
     const upstreamBase = requiredEnv("MACHINES_PARTNER_BASE_URL");
     const upstreamUrl = new URL(
       resolvePartnerUrl(upstreamBase, `/partner/v1/${pathSuffix}`),

@@ -1,108 +1,94 @@
-# Crossmint + Machines Cards Demo
+# Crossmint Wallets + Machines Quickstart
 
-Minimal reference app for integrators that use Crossmint wallets/auth and want to enable Machines cards through `/partner/v1` APIs.
+Minimal reference app for teams using Crossmint wallets/auth and adding Machines cards through `/partner/v1`.
 
-This example is intentionally small and self-contained (outside `/apps`) and uses a single embedded wallet flow.
+## Introduction
 
-## What this demo covers
+This quickstart shows a complete end-user flow:
 
-- Crossmint email auth and embedded wallet creation.
-- Partner session bootstrap through a minimal server route (`/api/partner/session`).
-- KYC schema + sample-fill + submit flow.
-- Card lifecycle: list, create, lock/unlock, reveal, delete.
-- Funding: deposits (`assets`, `range`, `estimate`, `create`).
-- Withdrawals with a simplified 3-input flow.
-- Activity and identity views.
+- Sign in with Crossmint email auth
+- Create a Machines partner session
+- Complete KYC + terms
+- Create and manage virtual cards
+- Add funds and submit withdrawals
 
-## Directory map
+The app is intentionally compact so integrators can copy patterns quickly.
 
-```text
-examples/crossmint-machines-cards
-├── app/
-│   ├── api/
-│   │   └── partner/session/route.ts
-│   ├── {accounts,activity,identity,kyc,withdrawals}/page.tsx
-│   └── providers-client.tsx
-├── src/
-│   ├── components/machines/*
-│   ├── lib/{crossmint,server}/*
-│   ├── lib/machines-partner-client.ts
-│   └── state/demo-session-provider.tsx
-└── tests/{unit,integration}/*
+## Deploy
+
+Deploy to Vercel and configure environment variables in the project settings.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmachines-cash%2Fcrossmint-machines-cards-example)
+
+## Setup
+
+1. Clone and install:
+
+```bash
+git clone https://github.com/machines-cash/crossmint-machines-cards-example.git
+cd crossmint-machines-cards-example
+npm install
 ```
 
-## Environment
+2. Create local env file:
 
-Copy `.env.example` to `.env.local`.
+```bash
+cp .env.example .env.local
+```
 
-### Client vars
+3. Fill required variables:
 
 - `NEXT_PUBLIC_CROSSMINT_API_KEY`
-- `NEXT_PUBLIC_CROSSMINT_EVM_CHAIN` (default `base-sepolia`)
-- `NEXT_PUBLIC_MACHINES_PARTNER_BASE_URL` (optional override; default is same-origin `/api/partner/proxy`)
-- `NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID` (default `84532`)
-- `NEXT_PUBLIC_EVM_RUSD_TOKEN` (default sandbox rUSD on Base Sepolia)
-- `NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET` (`true` enables testnet autofund on create deposit)
-- `NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK` (`true` enables server fallback if embedded autofund fails; default `false`)
+- `MACHINES_PARTNER_BASE_URL`
+- `MACHINES_PARTNER_API_KEY`
 
-### Server vars
+4. Run the app:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Environment Reference
+
+### Client
+
+- `NEXT_PUBLIC_CROSSMINT_API_KEY`
+- `NEXT_PUBLIC_CROSSMINT_EVM_CHAIN` (default: `base-sepolia`)
+- `NEXT_PUBLIC_MACHINES_PARTNER_BASE_URL` (optional override; default: `/api/partner/proxy`)
+- `NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID` (default: `84532`)
+- `NEXT_PUBLIC_EVM_RUSD_TOKEN` (default: sandbox rUSD on Base Sepolia)
+- `NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET` (`true` enables dev autofund on create deposit)
+- `NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK` (`true` enables server fallback autofund route)
+
+### Server
 
 - `MACHINES_PARTNER_BASE_URL`
 - `MACHINES_PARTNER_API_KEY`
 - `MACHINES_PARTNER_DEFAULT_SCOPES`
 - `MACHINES_PARTNER_EXTERNAL_USER_PREFIX` (optional)
-- `DEV_RUSD_AUTOFUND_ENABLED` (`true` to enable deposit autofund in development)
-- `DEV_RUSD_CHAIN_ID` (default `84532`)
-- `DEV_RUSD_RPC_URL` (Base Sepolia RPC)
-- `DEV_RUSD_TOKEN_ADDRESS` (sandbox rUSD token)
-- `DEV_RUSD_MINTER_PRIVATE_KEY` (dev-only key used to mint + transfer rUSD)
+- `DEV_RUSD_AUTOFUND_ENABLED`
+- `DEV_RUSD_CHAIN_ID`
+- `DEV_RUSD_RPC_URL`
+- `DEV_RUSD_TOKEN_ADDRESS`
+- `DEV_RUSD_MINTER_PRIVATE_KEY`
 
-### Development autofund behavior
-
-When all of these are true:
-
-- `NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET=true`
-- deposit network is `base`
-- source chain is Base Sepolia (`84532`)
-
-then clicking `create deposit` will also:
-
-1. call `mint(100)` on the sandbox rUSD contract from the user's Crossmint embedded EVM wallet
-2. transfer `100 rUSD` to the current user's EVM wallet (if needed)
-
-Optional server fallback:
-
-- If you set `NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK=true`, the app can fallback to `/api/dev/autofund-rusd`.
-- That route requires:
-  - `DEV_RUSD_AUTOFUND_ENABLED=true`
-  - `DEV_RUSD_MINTER_PRIVATE_KEY`
-  - Base Sepolia RPC + token config (`DEV_RUSD_RPC_URL`, `DEV_RUSD_TOKEN_ADDRESS`).
-
-This is development-only and is blocked in production.
-
-## Run
-
-```bash
-npm install
-npm run dev
-```
-
-Then open `http://localhost:3000`.
-
-## Build and tests
+## Build and Tests
 
 ```bash
 npm run build
 npm test
 ```
 
-## Security notes
+## Security Notes
 
-- Never expose partner API keys in browser code.
-- Never use production private keys for any local demo autofund flow.
-- For production, move all privileged signing/funding flows behind hardened backend services with strict auth/audit controls.
+- Keep partner keys server-side only.
+- Do not commit live keys.
+- Do not use production private keys in dev autofund.
+- Use staging/dev first, then production rollout.
 
-## Related docs
+## Related Docs
 
-- Crossmint integration guide draft: `docs/b2b/crossmint-wallet-extension-credit-cards.md`
-- AI companion spec: `docs/b2b/crossmint-wallet-extension-credit-cards.ai.yaml`
+- `docs/b2b/crossmint-wallet-extension-credit-cards.md`
+- `docs/b2b/crossmint-wallet-extension-credit-cards.ai.yaml`

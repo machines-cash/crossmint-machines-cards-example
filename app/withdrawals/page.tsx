@@ -5,6 +5,7 @@ import { AuthGate } from "@/components/machines/auth-gate";
 import { AppShell } from "@/components/machines/app-shell";
 import { Panel } from "@/components/machines/panel";
 import { SetupBlockingPanel } from "@/components/machines/setup-blocking-panel";
+import { isUnsupportedDestinationNetwork } from "@/lib/networks";
 import { useDemoSession } from "@/state/demo-session-provider";
 import type {
   WithdrawalAsset,
@@ -26,15 +27,10 @@ type DestinationOption = {
   network: string;
 };
 
-function isUnsupportedNetwork(networkId: string) {
-  const normalized = networkId.trim().toLowerCase();
-  return normalized === "solana" || normalized === "stellar";
-}
-
 function toDestinationOptions(assets: WithdrawalAsset[]): DestinationOption[] {
   const options = assets.flatMap((asset) =>
     asset.networks
-      .filter((network) => !isUnsupportedNetwork(network.id))
+      .filter((network) => !isUnsupportedDestinationNetwork(network.id))
       .map((network) => ({
         currency: asset.ticker.toLowerCase(),
         network: network.id.toLowerCase(),
@@ -72,7 +68,7 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function createReadyWithdrawal(input: {
+async function createReadyWithdrawalWithRetry(input: {
   create: () => Promise<WithdrawalSignatureResponse>;
 }) {
   let attempt = 0;
@@ -81,6 +77,7 @@ async function createReadyWithdrawal(input: {
     if (response.status === "ready") {
       return response;
     }
+    // Some providers return a pending signature first. Poll until ready.
     const retryAfterMs = Math.max(
       1_000,
       (response.retryAfterSeconds ?? 5) * 1_000,
@@ -214,7 +211,7 @@ export default function WithdrawalsPage() {
       });
       setLastEstimate(estimate);
 
-      const readyWithdrawal = await createReadyWithdrawal({
+      const readyWithdrawal = await createReadyWithdrawalWithRetry({
         create: () =>
           client.createWithdrawal({
             amountCents,

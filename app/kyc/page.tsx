@@ -159,6 +159,7 @@ export default function KycPage() {
     if (onboarding.loading || onboarding.step !== "agreements") {
       return;
     }
+    // Agreements are fetched only when the onboarding state reaches that step.
     void loadAgreements();
   }, [loadAgreements, onboarding.loading, onboarding.step]);
 
@@ -192,6 +193,7 @@ export default function KycPage() {
       });
 
       setKycStatus(result);
+      // Refresh both session and onboarding so subsequent steps unlock immediately.
       await refreshSession().catch(() => null);
       await refreshOnboarding().catch(() => null);
       setSuccess(

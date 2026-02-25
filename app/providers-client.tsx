@@ -5,24 +5,8 @@ import {
   CrossmintProvider,
   CrossmintWalletProvider,
 } from "@crossmint/client-sdk-react-ui";
+import { resolvePrimaryEvmChain } from "@/lib/crossmint/chains";
 import { DemoSessionProvider } from "@/state/demo-session-provider";
-
-type SupportedEvmChain =
-  | "base-sepolia"
-  | "base";
-
-const SUPPORTED_EVM_CHAINS = new Set<SupportedEvmChain>([
-  "base-sepolia",
-  "base",
-]);
-
-function resolvePrimaryEvmChain(input: string | undefined): SupportedEvmChain {
-  const normalized = input?.trim().toLowerCase();
-  if (normalized && SUPPORTED_EVM_CHAINS.has(normalized as SupportedEvmChain)) {
-    return normalized as SupportedEvmChain;
-  }
-  return "base-sepolia";
-}
 
 const appearance = {
   colors: {

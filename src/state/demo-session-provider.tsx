@@ -15,6 +15,7 @@ import {
   MachinesPartnerClient,
   MachinesPartnerError,
 } from "@/lib/machines-partner-client";
+import { resolvePrimaryEvmChain } from "@/lib/crossmint/chains";
 import {
   buildExternalUserId,
   extractCrossmintEmail,
@@ -44,26 +45,6 @@ type DemoSessionContextValue = {
 };
 
 const DemoSessionContext = createContext<DemoSessionContextValue | null>(null);
-
-type SupportedEvmChain =
-  | "base-sepolia"
-  | "base";
-
-const SUPPORTED_EVM_CHAINS = new Set<SupportedEvmChain>([
-  "base-sepolia",
-  "base",
-]);
-
-function resolvePrimaryEvmChain(input: string | undefined): SupportedEvmChain {
-  const normalized = input?.trim().toLowerCase();
-  if (
-    normalized &&
-    SUPPORTED_EVM_CHAINS.has(normalized as SupportedEvmChain)
-  ) {
-    return normalized as SupportedEvmChain;
-  }
-  return "base-sepolia";
-}
 
 function extractWalletAddress(wallet: unknown): string | null {
   if (!wallet || typeof wallet !== "object") return null;
@@ -203,6 +184,8 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
+    // Crossmint can report "logged-in" before the embedded wallet is hydrated.
+    // This ensures we request exactly one wallet creation call per login cycle.
     evmWalletCreateInFlightRef.current = true;
     setError(null);
     void getOrCreateWallet({
@@ -274,6 +257,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       const kyc = await client.getKycStatus();
 
       if (kyc.status !== "approved") {
+        // If the provider returned a completion URL, route the user to verification step.
         const hasVerificationLink = Boolean(
           kyc.completionLink || kyc.externalVerificationLink,
         );
@@ -290,6 +274,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       try {
         const agreements = await client.getAgreements();
         const accepted = Boolean(agreements.accepted);
+        // Ready means both identity and terms are complete.
         setOnboarding({
           loading: false,
           step: accepted ? "ready" : "agreements",

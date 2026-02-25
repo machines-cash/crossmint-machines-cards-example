@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PartnerResponse, PartnerWallet, SessionPayload } from "@/types/partner";
+import { requiredEnv, resolvePartnerUrl } from "@/lib/server/partner-http";
 
 const resolveInputSchema = z.object({
   externalUserId: z.string().min(1),
@@ -24,14 +25,6 @@ export class PartnerServerError extends Error {
     this.code = options?.code;
     this.summary = options?.summary;
   }
-}
-
-function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
 }
 
 function parseScopes(scopes?: string[]) {
@@ -61,20 +54,6 @@ function parseScopes(scopes?: string[]) {
     .split(",")
     .map((scope) => scope.trim())
     .filter(Boolean);
-}
-
-function resolvePartnerUrl(baseUrl: string, path: string) {
-  const normalizedBase = baseUrl.replace(/\/$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  if (
-    normalizedBase.endsWith("/partner/v1") &&
-    normalizedPath.startsWith("/partner/v1/")
-  ) {
-    return `${normalizedBase}${normalizedPath.slice("/partner/v1".length)}`;
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
 }
 
 async function requestPartnerApi<T>(path: string, options: {
@@ -167,6 +146,8 @@ export async function bootstrapMachinesSession(input: {
       error.status === 409 &&
       /kyc required/i.test(error.message)
     ) {
+      // First-time users may not have completed KYC yet.
+      // Fall back to the minimum scopes required to finish onboarding.
       return requestPartnerApi<SessionPayload>("/partner/v1/sessions", {
         method: "POST",
         body: {
