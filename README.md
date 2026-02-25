@@ -12,8 +12,6 @@ This quickstart shows a complete end-user flow:
 - Create and manage virtual cards
 - Add funds and submit withdrawals
 
-The app is intentionally compact so integrators can copy patterns quickly.
-
 ## Deploy
 
 Deploy to Vercel and configure environment variables in the project settings.
@@ -84,10 +82,3 @@ npm test
 
 - Keep partner keys server-side only.
 - Do not commit live keys.
-- Do not use production private keys in dev autofund.
-- Use staging/dev first, then production rollout.
-
-## Related Docs
-
-- `docs/b2b/crossmint-wallet-extension-credit-cards.md`
-- `docs/b2b/crossmint-wallet-extension-credit-cards.ai.yaml`
