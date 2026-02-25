@@ -247,7 +247,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     return new MachinesPartnerClient({
       baseUrl:
         process.env.NEXT_PUBLIC_MACHINES_PARTNER_BASE_URL ??
-        "https://dev-api.machines.cash/partner/v1",
+        "/api/partner/proxy",
       sessionToken: session.sessionToken,
     });
   }, [session]);
