@@ -38,12 +38,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="row-wrap" style={{ justifyContent: "space-between" }}>
           <div className="row" style={{ gap: 10 }}>
             <Image
-              src="/brand/machines-mark-legibility-black.svg"
-              alt="Machines"
-              width={28}
-              height={28}
-            />
-            <Image
               src="/brand/machines-wordmark.svg"
               alt="Machines Cash"
               width={124}
