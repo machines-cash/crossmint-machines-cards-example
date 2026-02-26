@@ -54,10 +54,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - `NEXT_PUBLIC_CROSSMINT_API_KEY`
 - `NEXT_PUBLIC_CROSSMINT_EVM_CHAIN` (default: `base-sepolia`)
-- `NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID` (default: `84532`)
 - `NEXT_PUBLIC_EVM_RUSD_TOKEN` (default: sandbox rUSD on Base Sepolia)
-- `NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET` (`true` enables dev autofund on create deposit)
-- `NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK` (`true` enables server fallback autofund route)
 
 ### Server
 
@@ -65,11 +62,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - `MACHINES_PARTNER_API_KEY`
 - `MACHINES_PARTNER_DEFAULT_SCOPES`
 - `MACHINES_PARTNER_EXTERNAL_USER_PREFIX` (optional)
-- `DEV_RUSD_AUTOFUND_ENABLED`
-- `DEV_RUSD_CHAIN_ID`
-- `DEV_RUSD_RPC_URL`
-- `DEV_RUSD_TOKEN_ADDRESS`
-- `DEV_RUSD_MINTER_PRIVATE_KEY`
 
 ## Build and Tests
 
@@ -82,3 +74,9 @@ npm test
 
 - Keep partner keys server-side only.
 - Do not commit live keys.
+- Use staging/dev first, then production rollout.
+
+## Related Docs
+
+- `docs/b2b/crossmint-wallet-extension-credit-cards.md`
+- `docs/b2b/crossmint-wallet-extension-credit-cards.ai.yaml`

@@ -13,12 +13,6 @@ import type {
   WithdrawalSignatureResponse,
 } from "@/types/partner";
 
-const DEFAULT_SOURCE_CHAIN_ID = Number(
-  process.env.NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID ?? "84532",
-);
-const DEFAULT_SOURCE_TOKEN_ADDRESS =
-  process.env.NEXT_PUBLIC_EVM_RUSD_TOKEN ??
-  "0x10b5Be494C2962A7B318aFB63f0Ee30b959D000b";
 const DEFAULT_WITHDRAWAL_AMOUNT_CENTS = 1_000;
 const MAX_WITHDRAWAL_RETRIES = 6;
 
@@ -77,7 +71,6 @@ async function createReadyWithdrawalWithRetry(input: {
     if (response.status === "ready") {
       return response;
     }
-    // Some providers return a pending signature first. Poll until ready.
     const retryAfterMs = Math.max(
       1_000,
       (response.retryAfterSeconds ?? 5) * 1_000,
@@ -139,10 +132,7 @@ export default function WithdrawalsPage() {
     async function loadAssets() {
       setLoadingAssets(true);
       try {
-        const nextAssets = await sessionClient.listWithdrawalAssets({
-          sourceChainId: DEFAULT_SOURCE_CHAIN_ID,
-          sourceTokenAddress: DEFAULT_SOURCE_TOKEN_ADDRESS,
-        });
+        const nextAssets = await sessionClient.listWithdrawalAssets();
         if (cancelled) return;
         setAssets(nextAssets);
       } catch {
@@ -182,10 +172,6 @@ export default function WithdrawalsPage() {
 
     try {
       const range = await client.getWithdrawalRange({
-        source: {
-          chainId: DEFAULT_SOURCE_CHAIN_ID,
-          tokenAddress: DEFAULT_SOURCE_TOKEN_ADDRESS,
-        },
         destination: {
           currency: selectedCurrency,
           network: selectedNetwork,
@@ -199,10 +185,6 @@ export default function WithdrawalsPage() {
       );
 
       const estimate = await client.getWithdrawalEstimate({
-        source: {
-          chainId: DEFAULT_SOURCE_CHAIN_ID,
-          tokenAddress: DEFAULT_SOURCE_TOKEN_ADDRESS,
-        },
         destination: {
           currency: selectedCurrency,
           network: selectedNetwork,
@@ -215,10 +197,7 @@ export default function WithdrawalsPage() {
         create: () =>
           client.createWithdrawal({
             amountCents,
-            source: {
-              chainId: DEFAULT_SOURCE_CHAIN_ID,
-              tokenAddress: DEFAULT_SOURCE_TOKEN_ADDRESS,
-            },
+            source: {},
             destination: {
               currency: selectedCurrency,
               network: selectedNetwork,

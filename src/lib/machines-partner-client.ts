@@ -242,20 +242,24 @@ export class MachinesPartnerClient {
     return data.deposits;
   }
 
-  async listWithdrawalAssets(payload: {
-    sourceChainId: number;
-    sourceTokenAddress: string;
+  async listWithdrawalAssets(payload?: {
+    sourceChainId?: number;
+    sourceTokenAddress?: string;
   }): Promise<WithdrawalAsset[]> {
-    const query = new URLSearchParams({
-      sourceChainId: String(payload.sourceChainId),
-      sourceTokenAddress: payload.sourceTokenAddress,
-    });
-    const data = await this.request<{ assets: WithdrawalAsset[] }>(`/withdrawals/assets?${query.toString()}`);
+    const query = new URLSearchParams();
+    if (typeof payload?.sourceChainId === "number") {
+      query.set("sourceChainId", String(payload.sourceChainId));
+    }
+    if (payload?.sourceTokenAddress) {
+      query.set("sourceTokenAddress", payload.sourceTokenAddress);
+    }
+    const path = query.size ? `/withdrawals/assets?${query.toString()}` : "/withdrawals/assets";
+    const data = await this.request<{ assets: WithdrawalAsset[] }>(path);
     return data.assets;
   }
 
   async getWithdrawalRange(payload: {
-    source: { chainId: number; tokenAddress: string };
+    source?: { chainId?: number; tokenAddress?: string };
     destination: { currency: string; network: string };
   }): Promise<WithdrawalRange> {
     const data = await this.request<{ range: WithdrawalRange }>("/withdrawals/range", {
@@ -266,7 +270,7 @@ export class MachinesPartnerClient {
   }
 
   async getWithdrawalEstimate(payload: {
-    source: { chainId: number; tokenAddress: string };
+    source?: { chainId?: number; tokenAddress?: string };
     destination: { currency: string; network: string; extraId?: string };
     amountCents: number;
   }): Promise<WithdrawalEstimate> {
@@ -279,7 +283,7 @@ export class MachinesPartnerClient {
 
   async createWithdrawal(payload: {
     amountCents: number;
-    source: { chainId: number; tokenAddress: string; contractId?: string };
+    source: { chainId?: number; tokenAddress?: string; contractId?: string };
     destination: { currency: string; network: string; address: string; extraId?: string };
     adminAddress?: string;
   }): Promise<WithdrawalSignatureResponse> {

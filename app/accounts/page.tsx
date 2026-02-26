@@ -29,6 +29,11 @@ const RUSD_TOKEN_ADDRESS = (
   process.env.NEXT_PUBLIC_EVM_RUSD_TOKEN ??
   "0x10b5Be494C2962A7B318aFB63f0Ee30b959D000b"
 ) as `0x${string}`;
+const CROSSMINT_EVM_CHAIN = (
+  process.env.NEXT_PUBLIC_CROSSMINT_EVM_CHAIN ?? "base-sepolia"
+)
+  .trim()
+  .toLowerCase();
 const RUSD_TOKEN_ABI = [
   {
     type: "function",
@@ -55,15 +60,6 @@ const RUSD_TOKEN_ABI = [
     outputs: [{ type: "uint8" }],
   },
 ] as const;
-const TESTNET_AUTOFUND_ENABLED =
-  (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_TESTNET ?? "true")
-    .trim()
-    .toLowerCase() === "true";
-const SERVER_AUTOFUND_FALLBACK_ENABLED =
-  (process.env.NEXT_PUBLIC_DEMO_AUTOFUND_SERVER_FALLBACK ?? "false")
-    .trim()
-    .toLowerCase() === "true";
-
 function limitFrequencyLabel(value: CardLimitFrequency) {
   if (value === "allTime") return "all time";
   if (value === "perAuthorization") return "per transaction";
@@ -114,6 +110,14 @@ function formatDepositError(cause: unknown) {
 
 async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldAttemptAutofund(input: { currency: string; network: string }) {
+  return (
+    CROSSMINT_EVM_CHAIN === "base-sepolia" &&
+    input.currency.trim().toLowerCase() === "rusd" &&
+    input.network.trim().toLowerCase() === "base"
+  );
 }
 
 export default function AccountsPage() {
@@ -351,12 +355,11 @@ export default function AccountsPage() {
         createdDeposit = await submitDeposit();
       }
 
-      let autofundFailure: string | null = null;
       let autofundRecipientAddress: string | null = null;
-      const shouldAutofund =
-        TESTNET_AUTOFUND_ENABLED &&
-        depositNetwork.trim().toLowerCase() === "base" &&
-        Number(process.env.NEXT_PUBLIC_EVM_SOURCE_CHAIN_ID ?? 84532) === 84532;
+      const shouldAutofund = shouldAttemptAutofund({
+        currency: depositCurrency,
+        network: depositNetwork,
+      });
 
       if (shouldAutofund) {
         autofundRecipientAddress =
@@ -369,41 +372,19 @@ export default function AccountsPage() {
 
       if (shouldAutofund && autofundRecipientAddress) {
         try {
-          const autofund = await createEmbeddedWalletAutofund({
+          await createEmbeddedWalletAutofund({
             getOrCreateWallet,
             recipientAddress: autofundRecipientAddress,
             amountDollars: 100,
-          }).catch(async (embeddedError) => {
-            if (!SERVER_AUTOFUND_FALLBACK_ENABLED) {
-              throw embeddedError;
-            }
-            const fallback = await createServerAutofund({
-              recipientAddress: autofundRecipientAddress!,
-              amountDollars: 100,
-            }).catch((serverError) => {
-              const embeddedMessage =
-                embeddedError instanceof Error ? embeddedError.message : "embedded autofund failed";
-              const serverMessage =
-                serverError instanceof Error ? serverError.message : "server autofund failed";
-              throw new Error(`${embeddedMessage}; ${serverMessage}`);
-            });
-            return fallback;
           });
-          void autofund;
         } catch (cause) {
-          autofundFailure =
-            cause instanceof Error
-              ? cause.message
-              : "autofund failed";
+          void cause;
         }
-      } else if (shouldAutofund) {
-        autofundFailure = "deposit address not ready yet";
       }
 
-      setSuccess(`Deposit created.${shouldAutofund && !autofundFailure ? " Added 100 rUSD to your deposit address for testing." : ""}`);
-      if (autofundFailure) {
-        setError("Deposit created, but automatic test funding failed.");
-      }
+      setSuccess(
+        `Deposit created.${shouldAutofund ? " Added 100 rUSD to your deposit address." : ""}`,
+      );
       await refresh();
     } catch (cause) {
       setError(formatDepositError(cause));
@@ -657,35 +638,6 @@ type AutofundResponse = {
   transferTxHash: string;
 };
 
-async function createServerAutofund(input: {
-  recipientAddress: string;
-  amountDollars: number;
-}): Promise<AutofundResponse> {
-  const response = await fetch("/api/dev/autofund-rusd", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-
-  const json = (await response.json()) as {
-    ok: boolean;
-    data?: AutofundResponse;
-    summary?: string;
-    errors?: Array<{ message: string }>;
-  };
-
-  if (!response.ok || !json.ok || !json.data) {
-    const summary = json.summary ?? `request failed (${response.status})`;
-    const details = json.errors?.map((item) => item.message).join("; ");
-    throw new Error(details ? `${summary}: ${details}` : summary);
-  }
-
-  return json.data;
-}
-
 async function waitForDepositAddress(input: {
   client: {
     listDeposits: (scope?: "active" | "all") => Promise<DepositIntent[]>;
@@ -749,7 +701,6 @@ async function createEmbeddedWalletAutofund(input: {
   const recipientAddress = getAddress(input.recipientAddress);
   let transferTxHash: `0x${string}` = mintTxHash;
   if (walletAddress !== recipientAddress) {
-    // If mint landed in a different wallet address, forward funds to deposit destination.
     const transferAmount = parseUnits(String(input.amountDollars), Number(decimals));
     const transferTransaction = await evmWallet.sendTransaction({
       to: RUSD_TOKEN_ADDRESS,
