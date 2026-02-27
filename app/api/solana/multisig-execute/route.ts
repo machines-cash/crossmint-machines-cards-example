@@ -38,6 +38,37 @@ function normalizeParameters(
   ];
 }
 
+function normalizeExecutionError(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const logs = Reflect.get(error, "logs");
+    if (Array.isArray(logs) && logs.length > 0) {
+      return logs
+        .map((log) => (typeof log === "string" ? log : JSON.stringify(log)))
+        .join(" | ");
+    }
+
+    const cause = Reflect.get(error, "cause");
+    if (cause instanceof Error && cause.message.trim()) {
+      return cause.message;
+    }
+
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== "{}") {
+        return serialized;
+      }
+    } catch {
+      // Ignore JSON serialization issues and use fallback message.
+    }
+  }
+
+  return "multisig execution failed";
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -84,7 +115,7 @@ export async function POST(request: Request) {
       errors: [],
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "multisig execution failed";
+    const message = normalizeExecutionError(error);
     return NextResponse.json(
       {
         ok: false,
