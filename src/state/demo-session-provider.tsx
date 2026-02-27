@@ -68,8 +68,62 @@ function extractWalletAddress(wallet: unknown): string | null {
   return null;
 }
 
+function getErrorMessage(cause: unknown) {
+  if (!cause) return "";
+  if (typeof cause === "string") return cause;
+  if (typeof cause === "object" && "message" in cause) {
+    const message = (cause as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "";
+}
+
+function isTransientWalletCreationError(cause: unknown) {
+  const message = getErrorMessage(cause).toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes("could not establish connection") ||
+    message.includes("receiving end does not exist") ||
+    message.includes("user rejected the request") ||
+    message.includes("in-progress") ||
+    message.includes("wallet is not loaded") ||
+    message.includes("network") ||
+    message.includes("timeout")
+  );
+}
+
 async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveWalletAddressWithRetries(input: {
+  getOrCreateWallet: (args: unknown) => Promise<unknown>;
+  walletArgs: unknown;
+}) {
+  let lastTransientError: unknown = null;
+
+  for (let attempt = 0; attempt < MAX_WALLET_RESOLVE_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(WALLET_RESOLVE_RETRY_MS * attempt);
+    }
+    try {
+      const wallet = await input.getOrCreateWallet(input.walletArgs);
+      const resolvedAddress = extractWalletAddress(wallet);
+      if (resolvedAddress) {
+        return resolvedAddress;
+      }
+    } catch (cause) {
+      if (!isTransientWalletCreationError(cause)) {
+        throw cause;
+      }
+      lastTransientError = cause;
+    }
+  }
+
+  if (lastTransientError) {
+    throw new Error("wallet setup is still in progress; please retry");
+  }
+  throw new Error("failed to create wallet");
 }
 
 function DisabledDemoSessionProvider(
@@ -240,46 +294,25 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
 
     walletCreateInFlightRef.current[requestedWalletChain] = true;
     setError(null);
-    void getOrCreateWallet({
+    const walletArgs = {
       chain: requestedCrossmintChain,
       signer: {
         type: "email",
       },
-    } as Parameters<typeof getOrCreateWallet>[0])
-      .then(async (createdWallet) => {
-        let resolvedAddress = extractWalletAddress(createdWallet);
-
-        // Crossmint can return undefined while its internal wallet state is still
-        // "in-progress" right after OTP verification. Retry briefly before failing.
-        for (
-          let attempt = 0;
-          !resolvedAddress && attempt < MAX_WALLET_RESOLVE_ATTEMPTS;
-          attempt += 1
-        ) {
-          await sleep(WALLET_RESOLVE_RETRY_MS * (attempt + 1));
-          const retriedWallet = await getOrCreateWallet({
-            chain: requestedCrossmintChain,
-            signer: {
-              type: "email",
-            },
-          } as Parameters<typeof getOrCreateWallet>[0]);
-          resolvedAddress = extractWalletAddress(retriedWallet);
-        }
-
-        if (!resolvedAddress) {
-          throw new Error("failed to create wallet");
-        }
-
+    } as Parameters<typeof getOrCreateWallet>[0];
+    void resolveWalletAddressWithRetries({
+      getOrCreateWallet: (args) =>
+        getOrCreateWallet(args as Parameters<typeof getOrCreateWallet>[0]),
+      walletArgs,
+    })
+      .then((resolvedAddress) => {
         setWalletAddresses((previous) => ({
           ...previous,
           [requestedWalletChain]: resolvedAddress,
         }));
       })
       .catch((cause) => {
-        const message =
-          cause instanceof Error
-            ? cause.message
-            : "failed to create embedded wallet";
+        const message = getErrorMessage(cause) || "failed to create embedded wallet";
         setError(message);
       })
       .finally(() => {
