@@ -4,6 +4,7 @@ import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import {
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -32,7 +33,22 @@ const requestSchema = z.object({
 });
 
 function toErrorMessage(cause: unknown) {
-  return cause instanceof Error ? cause.message : "solana autofund failed";
+  if (cause instanceof Error && cause.message) {
+    return cause.message;
+  }
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "message" in cause &&
+    typeof (cause as { message?: unknown }).message === "string"
+  ) {
+    return (cause as { message: string }).message;
+  }
+  try {
+    return JSON.stringify(cause);
+  } catch {
+    return String(cause ?? "solana autofund failed");
+  }
 }
 
 function resolveRpcUrl(chainId: number) {
@@ -120,6 +136,13 @@ export async function POST(request: Request) {
     const connection = new Connection(resolveRpcUrl(chainId), {
       commitment: "confirmed",
     });
+
+    if (chainId === SOLANA_DEVNET_CHAIN_ID) {
+      await ensureDevnetSignerSolBalance({
+        connection,
+        signerPublicKey: signer.publicKey,
+      });
+    }
 
     const programAddress =
       process.env.SOLANA_RUSD_MINT_PROGRAM_ADDRESS ?? DEFAULT_MINT_PROGRAM_ID;
@@ -227,5 +250,29 @@ export async function POST(request: Request) {
       },
       { status: 400 },
     );
+  }
+}
+
+async function ensureDevnetSignerSolBalance(input: {
+  connection: Connection;
+  signerPublicKey: PublicKey;
+}) {
+  const minimumLamports = Math.floor(0.03 * LAMPORTS_PER_SOL);
+  const currentBalance = await input.connection.getBalance(
+    input.signerPublicKey,
+    "confirmed",
+  );
+  if (currentBalance >= minimumLamports) {
+    return;
+  }
+
+  try {
+    const signature = await input.connection.requestAirdrop(
+      input.signerPublicKey,
+      1 * LAMPORTS_PER_SOL,
+    );
+    await input.connection.confirmTransaction(signature, "confirmed");
+  } catch {
+    // Continue even if faucet is rate-limited; tx execution will surface a precise error.
   }
 }
