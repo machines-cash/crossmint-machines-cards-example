@@ -15,12 +15,17 @@ import {
   MachinesPartnerClient,
   MachinesPartnerError,
 } from "@/lib/machines-partner-client";
-import { resolvePrimaryEvmChain } from "@/lib/crossmint/chains";
+import {
+  resolvePrimaryEvmChain,
+  resolvePrimarySolanaChain,
+} from "@/lib/crossmint/chains";
 import {
   buildExternalUserId,
   extractCrossmintEmail,
 } from "@/lib/crossmint/session-identity";
-import type { SessionPayload } from "@/types/partner";
+import type { SessionPayload, WalletChain } from "@/types/partner";
+
+const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
 
 type DemoSessionContextValue = {
   loading: boolean;
@@ -29,6 +34,8 @@ type DemoSessionContextValue = {
   client: MachinesPartnerClient | null;
   refreshSession: () => Promise<void>;
   authStatus: string;
+  walletChain: WalletChain;
+  setWalletChain: (walletChain: WalletChain) => void;
   walletAddress: string | null;
   crossmintConfigured: boolean;
   crossmintError: string | null;
@@ -65,6 +72,8 @@ function DisabledDemoSessionProvider(
       client: null,
       refreshSession: async () => undefined,
       authStatus: "not-configured",
+      walletChain: "evm",
+      setWalletChain: () => undefined,
       walletAddress: null,
       crossmintConfigured: false,
       crossmintError: props.reason,
@@ -93,7 +102,15 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
   const { user, status: authStatus, logout: crossmintLogout } = useAuth();
   const { getOrCreateWallet } = useWallet();
 
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletChain, setWalletChainState] = useState<WalletChain>(() => {
+    if (typeof window === "undefined") return "evm";
+    const stored = window.localStorage.getItem(WALLET_CHAIN_STORAGE_KEY);
+    return stored === "solana" ? "solana" : "evm";
+  });
+  const [walletAddresses, setWalletAddresses] = useState<Record<WalletChain, string | null>>({
+    evm: null,
+    solana: null,
+  });
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,10 +125,23 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
   const primaryEvmChain = resolvePrimaryEvmChain(
     process.env.NEXT_PUBLIC_CROSSMINT_EVM_CHAIN,
   );
-  const primaryWalletAddress = walletAddress;
+  const primarySolanaChain = resolvePrimarySolanaChain(
+    process.env.NEXT_PUBLIC_CROSSMINT_SOLANA_CHAIN,
+  );
+  const primaryWalletAddress = walletAddresses[walletChain];
 
-  const evmWalletCreateInFlightRef = useRef(false);
+  const walletCreateInFlightRef = useRef<Record<WalletChain, boolean>>({
+    evm: false,
+    solana: false,
+  });
   const lastBootstrapRef = useRef<string | null>(null);
+
+  const setWalletChain = useCallback((nextChain: WalletChain) => {
+    setWalletChainState(nextChain);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(WALLET_CHAIN_STORAGE_KEY, nextChain);
+    }
+  }, []);
 
   const resolveExternalUserId = useCallback(
     (fallbackWalletAddress: string) => {
@@ -140,12 +170,12 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       const nextSession = await bootstrapPartnerSession({
         externalUserId,
         wallet: {
-          chain: "evm",
+          chain: walletChain,
           address: primaryWalletAddress,
         },
       });
       setSession(nextSession);
-      lastBootstrapRef.current = `${externalUserId}:${primaryWalletAddress}`;
+      lastBootstrapRef.current = `${externalUserId}:${walletChain}:${primaryWalletAddress}`;
     } catch (cause) {
       const message =
         cause instanceof MachinesPartnerError
@@ -158,12 +188,18 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     } finally {
       setLoading(false);
     }
-  }, [primaryWalletAddress, resolveExternalUserId]);
+  }, [primaryWalletAddress, resolveExternalUserId, walletChain]);
 
   useEffect(() => {
     if (authStatus !== "logged-in") {
-      evmWalletCreateInFlightRef.current = false;
-      setWalletAddress(null);
+      walletCreateInFlightRef.current = {
+        evm: false,
+        solana: false,
+      };
+      setWalletAddresses({
+        evm: null,
+        solana: null,
+      });
       setSession(null);
       setError(null);
       setLoading(false);
@@ -181,26 +217,33 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     if (primaryWalletAddress) {
       return;
     }
-    if (evmWalletCreateInFlightRef.current) {
+    if (walletCreateInFlightRef.current[walletChain]) {
       return;
     }
 
     // Crossmint can report "logged-in" before the embedded wallet is hydrated.
     // This ensures we request exactly one wallet creation call per login cycle.
-    evmWalletCreateInFlightRef.current = true;
+    const requestedWalletChain = walletChain;
+    const requestedCrossmintChain =
+      requestedWalletChain === "evm" ? primaryEvmChain : primarySolanaChain;
+
+    walletCreateInFlightRef.current[requestedWalletChain] = true;
     setError(null);
     void getOrCreateWallet({
-      chain: primaryEvmChain,
+      chain: requestedCrossmintChain,
       signer: {
         type: "email",
       },
-    })
+    } as Parameters<typeof getOrCreateWallet>[0])
       .then((createdWallet) => {
-        const evmAddress = extractWalletAddress(createdWallet);
-        if (!evmAddress) {
+        const nextAddress = extractWalletAddress(createdWallet);
+        if (!nextAddress) {
           throw new Error("failed to create wallet");
         }
-        setWalletAddress(evmAddress);
+        setWalletAddresses((previous) => ({
+          ...previous,
+          [requestedWalletChain]: nextAddress,
+        }));
       })
       .catch((cause) => {
         const message =
@@ -210,21 +253,36 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
         setError(message);
       })
       .finally(() => {
-        evmWalletCreateInFlightRef.current = false;
+        walletCreateInFlightRef.current[requestedWalletChain] = false;
       });
-  }, [authStatus, getOrCreateWallet, primaryEvmChain, primaryWalletAddress]);
+  }, [
+    authStatus,
+    getOrCreateWallet,
+    primaryEvmChain,
+    primarySolanaChain,
+    primaryWalletAddress,
+    walletChain,
+  ]);
 
   useEffect(() => {
     if (authStatus !== "logged-in") return;
     if (!primaryWalletAddress) return;
 
     const externalUserId = resolveExternalUserId(primaryWalletAddress);
-    const bootstrapKey = `${externalUserId}:${primaryWalletAddress}`;
+    const bootstrapKey = `${externalUserId}:${walletChain}:${primaryWalletAddress}`;
     if (session && lastBootstrapRef.current === bootstrapKey) return;
     if (loading && lastBootstrapRef.current === bootstrapKey) return;
 
     void refreshSession();
-  }, [authStatus, loading, primaryWalletAddress, refreshSession, resolveExternalUserId, session]);
+  }, [
+    authStatus,
+    loading,
+    primaryWalletAddress,
+    refreshSession,
+    resolveExternalUserId,
+    session,
+    walletChain,
+  ]);
 
   const client = useMemo(() => {
     if (!session?.sessionToken) return null;
@@ -330,6 +388,8 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       client,
       refreshSession,
       authStatus,
+      walletChain,
+      setWalletChain,
       walletAddress: primaryWalletAddress,
       crossmintConfigured: true,
       crossmintError: null,
@@ -348,7 +408,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       primaryWalletAddress,
       refreshOnboarding,
       refreshSession,
+      setWalletChain,
       session,
+      walletChain,
     ],
   );
 

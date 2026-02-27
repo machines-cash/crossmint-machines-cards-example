@@ -121,7 +121,7 @@ function shouldAttemptAutofund(input: { currency: string; network: string }) {
 }
 
 export default function AccountsPage() {
-  const { client, loading: sessionLoading, onboarding } = useDemoSession();
+  const { client, loading: sessionLoading, onboarding, session } = useDemoSession();
   const { getOrCreateWallet } = useWallet();
   const setupLocked = onboarding.loading || onboarding.step !== "ready";
 
@@ -359,7 +359,7 @@ export default function AccountsPage() {
       const shouldAutofund = shouldAttemptAutofund({
         currency: depositCurrency,
         network: depositNetwork,
-      });
+      }) && session?.wallet?.chain === "evm";
 
       if (shouldAutofund) {
         autofundRecipientAddress =

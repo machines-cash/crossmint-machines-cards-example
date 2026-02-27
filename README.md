@@ -54,6 +54,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - `NEXT_PUBLIC_CROSSMINT_API_KEY`
 - `NEXT_PUBLIC_CROSSMINT_EVM_CHAIN` (default: `base-sepolia`)
+- `NEXT_PUBLIC_CROSSMINT_SOLANA_CHAIN` (default: `solana`)
+- `NEXT_PUBLIC_SOLANA_SOURCE_CHAIN_ID` (default: `901`)
 - `NEXT_PUBLIC_EVM_RUSD_TOKEN` (default: sandbox rUSD on Base Sepolia)
 
 ### Server

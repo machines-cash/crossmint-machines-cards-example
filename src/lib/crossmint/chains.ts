@@ -17,3 +17,11 @@ export function resolvePrimaryEvmChain(
   }
   return "base-sepolia";
 }
+
+export function resolvePrimarySolanaChain(input: string | undefined): string {
+  const normalized = input?.trim().toLowerCase();
+  if (normalized && normalized.length > 0) {
+    return normalized;
+  }
+  return "solana";
+}

@@ -16,6 +16,13 @@ import type {
 const DEFAULT_WITHDRAWAL_AMOUNT_CENTS = 1_000;
 const MAX_WITHDRAWAL_RETRIES = 6;
 
+function resolveSolanaSourceChainId() {
+  const parsed = Number(process.env.NEXT_PUBLIC_SOLANA_SOURCE_CHAIN_ID ?? 901);
+  return parsed === 900 ? 900 : 901;
+}
+
+const SOLANA_SOURCE_CHAIN_ID = resolveSolanaSourceChainId();
+
 type DestinationOption = {
   currency: string;
   network: string;
@@ -83,7 +90,7 @@ async function createReadyWithdrawalWithRetry(input: {
 }
 
 export default function WithdrawalsPage() {
-  const { client, walletAddress, onboarding } = useDemoSession();
+  const { client, walletAddress, walletChain, onboarding } = useDemoSession();
   const setupLocked = onboarding.loading || onboarding.step !== "ready";
 
   const [assets, setAssets] = useState<WithdrawalAsset[]>([]);
@@ -95,6 +102,20 @@ export default function WithdrawalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [lastEstimate, setLastEstimate] = useState<WithdrawalEstimate | null>(null);
+  const sourceFilter = useMemo(
+    () =>
+      walletChain === "solana"
+        ? { sourceChainId: SOLANA_SOURCE_CHAIN_ID }
+        : undefined,
+    [walletChain],
+  );
+  const source = useMemo(
+    () =>
+      walletChain === "solana"
+        ? { chainId: SOLANA_SOURCE_CHAIN_ID }
+        : undefined,
+    [walletChain],
+  );
 
   const destinationOptions = useMemo(
     () => toDestinationOptions(assets),
@@ -132,7 +153,7 @@ export default function WithdrawalsPage() {
     async function loadAssets() {
       setLoadingAssets(true);
       try {
-        const nextAssets = await sessionClient.listWithdrawalAssets();
+        const nextAssets = await sessionClient.listWithdrawalAssets(sourceFilter);
         if (cancelled) return;
         setAssets(nextAssets);
       } catch {
@@ -149,7 +170,7 @@ export default function WithdrawalsPage() {
     return () => {
       cancelled = true;
     };
-  }, [client, setupLocked]);
+  }, [client, setupLocked, sourceFilter]);
 
   useEffect(() => {
     if (!availableCurrencies.length) return;
@@ -172,6 +193,7 @@ export default function WithdrawalsPage() {
 
     try {
       const range = await client.getWithdrawalRange({
+        source,
         destination: {
           currency: selectedCurrency,
           network: selectedNetwork,
@@ -185,6 +207,7 @@ export default function WithdrawalsPage() {
       );
 
       const estimate = await client.getWithdrawalEstimate({
+        source,
         destination: {
           currency: selectedCurrency,
           network: selectedNetwork,
@@ -197,7 +220,7 @@ export default function WithdrawalsPage() {
         create: () =>
           client.createWithdrawal({
             amountCents,
-            source: {},
+            source: source ?? {},
             destination: {
               currency: selectedCurrency,
               network: selectedNetwork,

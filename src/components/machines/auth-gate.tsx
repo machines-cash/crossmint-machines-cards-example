@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
 import { useDemoSession } from "@/state/demo-session-provider";
 
 const EmbeddedAuthForm = dynamic(
@@ -17,9 +16,6 @@ const EmbeddedAuthForm = dynamic(
 
 export function AuthGate(props: { children: React.ReactNode }) {
   const session = useDemoSession();
-  const [selectedWalletType, setSelectedWalletType] = useState<"evm" | "sol">(
-    "evm",
-  );
 
   if (!session.crossmintConfigured) {
     return (
@@ -51,11 +47,11 @@ export function AuthGate(props: { children: React.ReactNode }) {
             <button
               type="button"
               className="btn"
-              onClick={() => setSelectedWalletType("evm")}
+              onClick={() => session.setWalletChain("evm")}
               style={{
-                color: selectedWalletType === "evm" ? "white" : "#333333",
+                color: session.walletChain === "evm" ? "white" : "#333333",
                 background:
-                  selectedWalletType === "evm"
+                  session.walletChain === "evm"
                     ? "linear-gradient(130deg, #ff4500, #7b2fff)"
                     : "rgba(0,0,0,0.06)",
                 minWidth: 96,
@@ -66,30 +62,21 @@ export function AuthGate(props: { children: React.ReactNode }) {
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => setSelectedWalletType("sol")}
+              onClick={() => session.setWalletChain("solana")}
               style={{
-                color: selectedWalletType === "sol" ? "#8f5d06" : "#333333",
+                color: session.walletChain === "solana" ? "#8f5d06" : "#333333",
                 background:
-                  selectedWalletType === "sol"
+                  session.walletChain === "solana"
                     ? "rgba(255, 166, 0, 0.2)"
                     : "rgba(0,0,0,0.05)",
                 minWidth: 96,
               }}
             >
-              SOL soon
+              SOL
             </button>
           </div>
 
-          {selectedWalletType === "evm" ? (
-            <EmbeddedAuthForm />
-          ) : (
-            <div className="surface stack" style={{ padding: 14, gap: 8 }}>
-              <strong style={{ fontSize: 16 }}>SOL support is coming soon.</strong>
-              <p className="muted" style={{ margin: 0 }}>
-                Select EVM to continue.
-              </p>
-            </div>
-          )}
+          <EmbeddedAuthForm />
         </div>
       </div>
     );
