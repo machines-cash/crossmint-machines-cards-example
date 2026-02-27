@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { SolanaWallet, useWallet } from "@crossmint/client-sdk-react-ui";
 import { AuthGate } from "@/components/machines/auth-gate";
 import { AppShell } from "@/components/machines/app-shell";
 import { Panel } from "@/components/machines/panel";
@@ -97,8 +98,67 @@ async function createReadyWithdrawalWithRetry(input: {
   throw new Error("Withdrawal is still preparing. Please try again.");
 }
 
+type SingleSignerPreparedTransaction = {
+  serializedTransaction: string;
+  sourceTokenAccount: string | null;
+  destinationTokenAccount: string | null;
+  recentBlockhash: string;
+};
+
+async function prepareSingleSignerTransaction(input: {
+  chainId: number;
+  programAddress: string;
+  depositAddress: string;
+  parameters: unknown[];
+  ownerAddress: string;
+}) {
+  const response = await fetch("/api/solana/single-signer-prepare", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  const text = await response.text();
+  let parsed:
+    | {
+        ok?: boolean;
+        summary?: string;
+        errors?: Array<{ message?: string }>;
+        data?: SingleSignerPreparedTransaction;
+      }
+    | null = null;
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as {
+        ok?: boolean;
+        summary?: string;
+        errors?: Array<{ message?: string }>;
+        data?: SingleSignerPreparedTransaction;
+      };
+    } catch {
+      throw new Error(`invalid single-signer prepare response (${response.status})`);
+    }
+  }
+
+  if (!response.ok || !parsed?.ok || !parsed.data) {
+    const details = parsed?.errors
+      ?.map((error) => error.message)
+      .filter((value): value is string => Boolean(value))
+      .join("; ");
+    const summary = parsed?.summary ?? `single-signer prepare failed (${response.status})`;
+    throw new Error(details ? `${summary}: ${details}` : summary);
+  }
+
+  return parsed.data;
+}
+
 export default function WithdrawalsPage() {
   const { client, walletAddress, walletChain, onboarding } = useDemoSession();
+  const { getOrCreateWallet } = useWallet();
   const setupLocked = onboarding.loading || onboarding.step !== "ready";
 
   const [assets, setAssets] = useState<WithdrawalAsset[]>([]);
@@ -277,8 +337,56 @@ export default function WithdrawalsPage() {
           }),
       });
 
-      void readyWithdrawal;
-      setSuccess("Withdrawal submitted. Funds are now being processed.");
+      if (
+        walletChain === "solana" &&
+        selectedNetwork === "solana" &&
+        readyWithdrawal.status === "ready" &&
+        readyWithdrawal.execution?.callPath === "solana_v2_02"
+      ) {
+        const callTarget = readyWithdrawal.execution.callTarget;
+        const collateralProxyAddress =
+          readyWithdrawal.execution.collateralProxyAddress;
+        const parameters = readyWithdrawal.parameters as unknown[] | null;
+
+        if (!callTarget) {
+          throw new Error("Missing Solana program address for withdrawal execution.");
+        }
+        if (!collateralProxyAddress) {
+          throw new Error("Missing Solana collateral address for withdrawal execution.");
+        }
+        if (!parameters || parameters.length !== 7) {
+          throw new Error("Missing Solana withdrawal parameters.");
+        }
+
+        const prepared = await prepareSingleSignerTransaction({
+          chainId: readyWithdrawal.execution.chainId ?? SOLANA_SOURCE_CHAIN_ID,
+          programAddress: callTarget,
+          depositAddress: collateralProxyAddress,
+          parameters,
+          ownerAddress: walletAddress,
+        });
+
+        const wallet = await getOrCreateWallet({
+          chain: "solana",
+          signer: { type: "email" },
+        });
+        if (!wallet) {
+          throw new Error("embedded solana wallet unavailable");
+        }
+
+        const solanaWallet = SolanaWallet.from(
+          wallet as Parameters<typeof SolanaWallet.from>[0],
+        );
+        const execution = await solanaWallet.sendTransaction({
+          serializedTransaction: prepared.serializedTransaction,
+        });
+
+        setSuccess(
+          `Withdrawal submitted and executed on Solana (${execution.hash ?? execution.transactionId}).`,
+        );
+      } else {
+        setSuccess("Withdrawal submitted. Funds are now being processed.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to create withdrawal.");
     } finally {

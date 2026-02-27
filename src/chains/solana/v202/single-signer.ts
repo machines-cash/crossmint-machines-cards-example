@@ -4,16 +4,26 @@ import {
   Keypair,
   PublicKey,
   Transaction,
+  type TransactionInstruction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token";
 import type { Program } from "@coral-xyz/anchor";
 import type { Main } from "@/chains/solana/idl/main";
-import type { SingleSignerExecuteInput, WithdrawCollateralRequest } from "./types";
+import type {
+  SingleSignerExecuteInput,
+  SolanaExecutionBundle,
+  WithdrawCollateralRequest,
+} from "./types";
 import { createSignatureVerificationInstruction } from "./ed25519";
 import {
   getDestinationTokenAccount,
   getProgram,
+  getProgramWithWalletPublicKey,
   getSourceTokenAccount,
   parsePublicKey,
   resolveDomainChainId,
@@ -189,5 +199,155 @@ export async function executeSolanaSingleSignerWithdrawalV202(input: SingleSigne
     transactionSignature: signature,
     sourceTokenAccount: sourceTokenAccount?.toBase58() ?? null,
     destinationTokenAccount: destinationTokenAccount?.address.toBase58() ?? null,
+  };
+}
+
+export async function prepareSolanaSingleSignerWithdrawalTransactionV202(
+  input: SolanaExecutionBundle & {
+    ownerAddress: string;
+    rpcUrl?: string;
+  },
+) {
+  const {
+    collateralProxyAddress,
+    assetAddress,
+    amountInCents,
+    recipientAddress,
+    expiresAt,
+    executorPublisherSalt,
+    executorPublisherSig,
+  } = decodeExecutionParameters(input);
+
+  const rpcUrl = input.rpcUrl ?? process.env.SOLANA_RPC_URL;
+  if (!rpcUrl) {
+    throw new Error("SOLANA_RPC_URL is required");
+  }
+
+  const owner = parsePublicKey(input.ownerAddress, "ownerAddress");
+  const collateralAddress = parsePublicKey(collateralProxyAddress, "collateralProxyAddress");
+  const mintAddress = parsePublicKey(assetAddress, "assetAddress");
+  const recipient = parsePublicKey(recipientAddress, "recipientAddress");
+
+  const program = getProgramWithWalletPublicKey({
+    programAddress: input.programAddress,
+    walletPublicKey: owner,
+    rpcUrl,
+  });
+
+  const collateralAccount = await fetchSingleSignerCollateral(program, collateralAddress);
+  const nonce = collateralAccount.nonce ?? collateralAccount.adminFundsNonce;
+  if (typeof nonce !== "number") {
+    throw new Error("single signer collateral nonce is missing");
+  }
+
+  const withdrawRequest: WithdrawCollateralRequest = {
+    amountOfAsset: new BN(amountInCents),
+    signatureExpirationTime: new BN(expiresAt),
+    coordinatorSignatureSalt: Array.from(Buffer.from(executorPublisherSalt, "base64")).map(Number),
+  };
+
+  const isNativeAsset = mintAddress.equals(PublicKey.default);
+  const sourceTokenAccount = isNativeAsset
+    ? null
+    : await getSourceTokenAccount({
+        depositAddress: parsePublicKey(input.depositAddress, "depositAddress"),
+        mintAddress,
+      });
+
+  const destinationTokenAddress = isNativeAsset
+    ? null
+    : await getAssociatedTokenAddress(mintAddress, recipient, false, TOKEN_PROGRAM_ID);
+
+  const setupInstructions: TransactionInstruction[] = [];
+  if (destinationTokenAddress) {
+    const destinationAccountInfo = await program.provider.connection.getAccountInfo(
+      destinationTokenAddress,
+      "confirmed",
+    );
+    if (!destinationAccountInfo) {
+      setupInstructions.push(
+        createAssociatedTokenAccountInstruction(
+          owner,
+          destinationTokenAddress,
+          recipient,
+          mintAddress,
+          TOKEN_PROGRAM_ID,
+        ),
+      );
+    }
+  }
+
+  const coordinator = await (
+    program.account as unknown as { coordinator: { fetch: (key: PublicKey) => Promise<CoordinatorAccountLike> } }
+  ).coordinator.fetch(collateralAccount.coordinator);
+
+  const executor = coordinator.executors?.[0];
+  if (!executor) {
+    throw new Error("coordinator has no executor");
+  }
+
+  const coordinatorVerifyIx = createSignatureVerificationInstruction({
+    signer: executor,
+    signature: Buffer.from(executorPublisherSig, "base64"),
+    message: CoordinatorMessage.getWithdrawMessage({
+      collateral: collateralAddress,
+      coordinator: collateralAccount.coordinator,
+      sender: owner,
+      receiver: recipient,
+      asset: mintAddress,
+      request: withdrawRequest,
+      adminFundsNonce: nonce,
+      domainChainId: resolveDomainChainId(input.chainId),
+    }),
+  });
+
+  const methods = program.methods as unknown as Record<string, (...args: unknown[]) => {
+    accounts: (accounts: Record<string, PublicKey>) => { instruction: () => Promise<ReturnType<typeof Transaction.prototype.add>["instructions"][number]> };
+  }>;
+
+  const withdrawSingleSigner = methods.withdrawSingleSignerCollateralAsset;
+  if (!withdrawSingleSigner) {
+    throw new Error("IDL is missing withdrawSingleSignerCollateralAsset. Update to v2.02 IDL.");
+  }
+
+  const accountNames = getInstructionAccountNames(program, "withdrawSingleSignerCollateralAsset");
+  const accountMap = pickInstructionAccounts(accountNames, {
+    owner,
+    sender: owner,
+    receiver: recipient,
+    destination: recipient,
+    coordinator: collateralAccount.coordinator,
+    collateral: collateralAddress,
+    asset: isNativeAsset ? null : mintAddress,
+    collateralTokenAccount: sourceTokenAccount,
+    receiverTokenAccount: destinationTokenAddress,
+    destinationTokenAccount: destinationTokenAddress,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  });
+
+  const withdrawIx = await withdrawSingleSigner(withdrawRequest)
+    .accounts(accountMap)
+    .instruction();
+
+  const latestBlockhash = await program.provider.connection.getLatestBlockhash("confirmed");
+  const transaction = new Transaction({
+    feePayer: owner,
+    recentBlockhash: latestBlockhash.blockhash,
+  });
+  if (setupInstructions.length > 0) {
+    transaction.add(...setupInstructions);
+  }
+  transaction.add(coordinatorVerifyIx, withdrawIx);
+
+  return {
+    serializedTransaction: bs58.encode(
+      transaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      }),
+    ),
+    sourceTokenAccount: sourceTokenAccount?.toBase58() ?? null,
+    destinationTokenAccount: destinationTokenAddress?.toBase58() ?? null,
+    recentBlockhash: latestBlockhash.blockhash,
   };
 }

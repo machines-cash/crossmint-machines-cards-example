@@ -52,6 +52,36 @@ export function getProgram(options: {
   return new Program<Main>(idl as Idl, provider);
 }
 
+export function getProgramWithWalletPublicKey(options: {
+  programAddress: string;
+  walletPublicKey: PublicKey;
+  rpcUrl: string;
+}): Program<Main> {
+  const connection = new Connection(options.rpcUrl, { commitment: "confirmed" });
+  const idl = {
+    ...mainIdl,
+    address: options.programAddress,
+  };
+
+  const wallet = {
+    publicKey: options.walletPublicKey,
+    async signTransaction(transaction: Transaction) {
+      return transaction;
+    },
+    async signAllTransactions(transactions: Transaction[]) {
+      return transactions;
+    },
+  };
+
+  const provider = new AnchorProvider(
+    connection,
+    wallet as AnchorProvider["wallet"],
+    AnchorProvider.defaultOptions(),
+  );
+
+  return new Program<Main>(idl as Idl, provider);
+}
+
 export async function getDestinationTokenAccount(options: {
   program: Program<Main>;
   payer: Keypair;

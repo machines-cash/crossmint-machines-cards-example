@@ -9,10 +9,10 @@ export type WithdrawCollateralRequest = {
 export type PartnerWithdrawalSignatureParameters = [
   collateralProxyAddress: string,
   assetAddress: string,
-  amountInCents: number,
+  amountInCents: string | number,
   recipientAddress: string,
-  expiresAt: number,
-  executorPublisherSalt: string,
+  expiresAt: string | number,
+  executorPublisherSalt: string | number[],
   executorPublisherSig: string,
 ];
 

@@ -104,7 +104,10 @@ export function decodeExecutionParameters(bundle: SolanaExecutionBundle) {
     amountInCents: Number(amountInCents),
     recipientAddress,
     expiresAt: Number(expiresAt),
-    executorPublisherSalt,
+    executorPublisherSalt:
+      typeof executorPublisherSalt === "string"
+        ? executorPublisherSalt
+        : Buffer.from(Uint8Array.from(executorPublisherSalt)).toString("base64"),
     executorPublisherSig,
   };
 }
