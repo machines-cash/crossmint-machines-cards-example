@@ -5,9 +5,13 @@ import { AuthGate } from "@/components/machines/auth-gate";
 import { AppShell } from "@/components/machines/app-shell";
 import { Panel } from "@/components/machines/panel";
 import { SetupBlockingPanel } from "@/components/machines/setup-blocking-panel";
-import { isUnsupportedDestinationNetwork } from "@/lib/networks";
+import {
+  isNetworkSupportedForWallet,
+  preferredNetworkForWalletChain,
+} from "@/lib/networks";
 import { useDemoSession } from "@/state/demo-session-provider";
 import type {
+  WalletChain,
   WithdrawalAsset,
   WithdrawalEstimate,
   WithdrawalSignatureResponse,
@@ -28,10 +32,13 @@ type DestinationOption = {
   network: string;
 };
 
-function toDestinationOptions(assets: WithdrawalAsset[]): DestinationOption[] {
+function toDestinationOptions(
+  assets: WithdrawalAsset[],
+  walletChain: WalletChain,
+): DestinationOption[] {
   const options = assets.flatMap((asset) =>
     asset.networks
-      .filter((network) => !isUnsupportedDestinationNetwork(network.id))
+      .filter((network) => isNetworkSupportedForWallet(network.id, walletChain))
       .map((network) => ({
         currency: asset.ticker.toLowerCase(),
         network: network.id.toLowerCase(),
@@ -45,7 +52,7 @@ function toDestinationOptions(assets: WithdrawalAsset[]): DestinationOption[] {
   return [
     {
       currency: "rusd",
-      network: "base",
+      network: preferredNetworkForWalletChain(walletChain),
     },
   ];
 }
@@ -95,7 +102,9 @@ export default function WithdrawalsPage() {
 
   const [assets, setAssets] = useState<WithdrawalAsset[]>([]);
   const [selectedCurrency, setSelectedCurrency] = useState("rusd");
-  const [selectedNetwork, setSelectedNetwork] = useState("base");
+  const [selectedNetwork, setSelectedNetwork] = useState(
+    preferredNetworkForWalletChain(walletChain),
+  );
   const [destinationAddress, setDestinationAddress] = useState(walletAddress ?? "");
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -118,8 +127,8 @@ export default function WithdrawalsPage() {
   );
 
   const destinationOptions = useMemo(
-    () => toDestinationOptions(assets),
-    [assets],
+    () => toDestinationOptions(assets, walletChain),
+    [assets, walletChain],
   );
 
   const availableCurrencies = useMemo(() => {
@@ -181,8 +190,17 @@ export default function WithdrawalsPage() {
   useEffect(() => {
     if (!availableNetworks.length) return;
     if (availableNetworks.includes(selectedNetwork)) return;
+    const preferredNetwork = preferredNetworkForWalletChain(walletChain);
+    if (availableNetworks.includes(preferredNetwork)) {
+      setSelectedNetwork(preferredNetwork);
+      return;
+    }
     setSelectedNetwork(availableNetworks[0]);
-  }, [availableNetworks, selectedNetwork]);
+  }, [availableNetworks, selectedNetwork, walletChain]);
+
+  useEffect(() => {
+    setSelectedNetwork(preferredNetworkForWalletChain(walletChain));
+  }, [walletChain]);
 
   const submitWithdrawal = async () => {
     if (!client || !walletAddress || setupLocked) return;

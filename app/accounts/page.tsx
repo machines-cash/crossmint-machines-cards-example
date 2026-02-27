@@ -12,7 +12,10 @@ import { VirtualCard } from "@/components/machines/virtual-card";
 import { formatUsdCents, titleCaseStatus } from "@/lib/format";
 import { decryptCardSecrets } from "@/lib/card-secrets";
 import { MachinesPartnerError } from "@/lib/machines-partner-client";
-import { isUnsupportedDestinationNetwork } from "@/lib/networks";
+import {
+  isNetworkSupportedForWallet,
+  preferredNetworkForWalletChain,
+} from "@/lib/networks";
 import { useDemoSession } from "@/state/demo-session-provider";
 import type { DepositAsset, DepositIntent, PartnerCard } from "@/types/partner";
 
@@ -121,7 +124,7 @@ function shouldAttemptAutofund(input: { currency: string; network: string }) {
 }
 
 export default function AccountsPage() {
-  const { client, loading: sessionLoading, onboarding, session } = useDemoSession();
+  const { client, loading: sessionLoading, onboarding, session, walletChain } = useDemoSession();
   const { getOrCreateWallet } = useWallet();
   const setupLocked = onboarding.loading || onboarding.step !== "ready";
 
@@ -140,7 +143,9 @@ export default function AccountsPage() {
 
   const [depositAssets, setDepositAssets] = useState<DepositAsset[]>([]);
   const [depositCurrency, setDepositCurrency] = useState("rusd");
-  const [depositNetwork, setDepositNetwork] = useState("base");
+  const [depositNetwork, setDepositNetwork] = useState(
+    preferredNetworkForWalletChain(walletChain),
+  );
   const [depositAmount, setDepositAmount] = useState(10);
   const [deposits, setDeposits] = useState<DepositIntent[]>([]);
   const [depositBusy, setDepositBusy] = useState(false);
@@ -154,11 +159,11 @@ export default function AccountsPage() {
         .map((asset) => ({
           ...asset,
           networks: asset.networks.filter(
-            (network) => !isUnsupportedDestinationNetwork(network.id),
+            (network) => isNetworkSupportedForWallet(network.id, walletChain),
           ),
         }))
         .filter((asset) => asset.networks.length > 0),
-    [depositAssets],
+    [depositAssets, walletChain],
   );
   const depositCurrencyOptions = useMemo(
     () => [...new Set(displayDepositAssets.map((asset) => asset.ticker.toLowerCase()))],
@@ -241,13 +246,17 @@ export default function AccountsPage() {
   useEffect(() => {
     if (!depositNetworkOptions.length) return;
     if (depositNetworkOptions.includes(depositNetwork.toLowerCase())) return;
-    const preferredNetwork = "base";
+    const preferredNetwork = preferredNetworkForWalletChain(walletChain);
     if (depositNetworkOptions.includes(preferredNetwork)) {
       setDepositNetwork(preferredNetwork);
       return;
     }
     setDepositNetwork(depositNetworkOptions[0]);
-  }, [depositNetwork, depositNetworkOptions]);
+  }, [depositNetwork, depositNetworkOptions, walletChain]);
+
+  useEffect(() => {
+    setDepositNetwork(preferredNetworkForWalletChain(walletChain));
+  }, [walletChain]);
 
   const createCard = async () => {
     if (!client || setupLocked) return;
