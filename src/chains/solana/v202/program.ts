@@ -153,7 +153,7 @@ export async function getDestinationTokenAccount(options: {
     options.payer,
     options.mintAddress,
     options.recipientAddress,
-    false,
+    true,
     "confirmed",
     { commitment: "confirmed" },
     TOKEN_PROGRAM_ID,
