@@ -18,14 +18,73 @@ import {
 import mainIdl from "@/chains/solana/idl/main.json";
 import type { Main } from "@/chains/solana/idl/main";
 
+const COLLATERAL_V2_DISCRIMINATOR = [165, 86, 67, 157, 199, 120, 39, 111];
+const COLLATERAL_ADMIN_SIGNATURES_V2_DISCRIMINATOR = [
+  194, 102, 185, 168, 0, 177, 70, 136,
+];
+
+function normalizeRainSolanaIdl(idl: typeof mainIdl) {
+  const cloned = JSON.parse(JSON.stringify(idl)) as typeof mainIdl;
+  const accounts = (cloned.accounts ?? []) as Array<{
+    name: string;
+    discriminator?: number[];
+  }>;
+  const types = (cloned.types ?? []) as Array<{
+    name: string;
+    type?: unknown;
+  }>;
+
+  const hasAccount = (name: string) => accounts.some((account) => account.name === name);
+  const hasType = (name: string) => types.some((type) => type.name === name);
+
+  if (!hasAccount("CollateralV2")) {
+    accounts.push({
+      name: "CollateralV2",
+      discriminator: COLLATERAL_V2_DISCRIMINATOR,
+    });
+  }
+
+  if (!hasType("CollateralV2")) {
+    const collateralType = types.find((type) => type.name === "Collateral");
+    if (collateralType) {
+      types.push({
+        ...collateralType,
+        name: "CollateralV2",
+      });
+    }
+  }
+
+  if (!hasAccount("CollateralAdminSignaturesV2")) {
+    accounts.push({
+      name: "CollateralAdminSignaturesV2",
+      discriminator: COLLATERAL_ADMIN_SIGNATURES_V2_DISCRIMINATOR,
+    });
+  }
+
+  if (!hasType("CollateralAdminSignaturesV2")) {
+    const collateralSignaturesType = types.find(
+      (type) => type.name === "CollateralAdminSignatures",
+    );
+    if (collateralSignaturesType) {
+      types.push({
+        ...collateralSignaturesType,
+        name: "CollateralAdminSignaturesV2",
+      });
+    }
+  }
+
+  return cloned;
+}
+
 export function getProgram(options: {
   programAddress: string;
   signer: Keypair;
   rpcUrl: string;
 }): Program<Main> {
   const connection = new Connection(options.rpcUrl, { commitment: "confirmed" });
+  const normalizedIdl = normalizeRainSolanaIdl(mainIdl);
   const idl = {
-    ...mainIdl,
+    ...normalizedIdl,
     address: options.programAddress,
   };
 
@@ -58,8 +117,9 @@ export function getProgramWithWalletPublicKey(options: {
   rpcUrl: string;
 }): Program<Main> {
   const connection = new Connection(options.rpcUrl, { commitment: "confirmed" });
+  const normalizedIdl = normalizeRainSolanaIdl(mainIdl);
   const idl = {
-    ...mainIdl,
+    ...normalizedIdl,
     address: options.programAddress,
   };
 
