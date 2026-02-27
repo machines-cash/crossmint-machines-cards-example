@@ -19,6 +19,7 @@ import {
   getAccount,
   getMint,
   getOrCreateAssociatedTokenAccount,
+  transferChecked,
 } from "@solana/spl-token";
 
 const SOLANA_MAINNET_CHAIN_ID = 900;
@@ -263,6 +264,14 @@ export async function POST(request: Request) {
     );
     const [mintAddress] = PublicKey.findProgramAddressSync([mintSeed], programId);
 
+    const signerTokenAccount = await getOrCreateAtaWithRetry({
+      connection,
+      payer: signer,
+      mintAddress,
+      owner: signer.publicKey,
+      allowOwnerOffCurve: false,
+    });
+
     const recipientTokenAccount = await resolveDestinationTokenAccount({
       connection,
       payer: signer,
@@ -288,7 +297,7 @@ export async function POST(request: Request) {
       programId,
       mintAddress,
       payer: signer.publicKey,
-      destinationTokenAccount: recipientTokenAccount,
+      destinationTokenAccount: signerTokenAccount,
       amount: amountBaseUnits,
     });
 
@@ -299,7 +308,22 @@ export async function POST(request: Request) {
       { commitment: "confirmed" },
     );
 
-    const transferTxHash = mintTxHash;
+    let transferTxHash = mintTxHash;
+    if (!signerTokenAccount.equals(recipientTokenAccount)) {
+      transferTxHash = await transferChecked(
+        connection,
+        signer,
+        signerTokenAccount,
+        mintAddress,
+        recipientTokenAccount,
+        signer,
+        amountBaseUnits,
+        decimals,
+        [],
+        { commitment: "confirmed" },
+        TOKEN_PROGRAM_ID,
+      );
+    }
 
     return NextResponse.json({
       ok: true,
