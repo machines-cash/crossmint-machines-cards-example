@@ -26,6 +26,8 @@ import {
 import type { SessionPayload, WalletChain } from "@/types/partner";
 
 const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
+const MAX_WALLET_RESOLVE_ATTEMPTS = 6;
+const WALLET_RESOLVE_RETRY_MS = 500;
 
 type DemoSessionContextValue = {
   loading: boolean;
@@ -57,8 +59,17 @@ const PARTNER_PROXY_BASE_URL = "/api/partner/proxy";
 function extractWalletAddress(wallet: unknown): string | null {
   if (!wallet || typeof wallet !== "object") return null;
   const record = wallet as Record<string, unknown>;
-  const address = record.address;
-  return typeof address === "string" && address.trim() ? address : null;
+  const candidates = [record.address, record.walletAddress, record.publicKey];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function DisabledDemoSessionProvider(
@@ -235,14 +246,33 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
         type: "email",
       },
     } as Parameters<typeof getOrCreateWallet>[0])
-      .then((createdWallet) => {
-        const nextAddress = extractWalletAddress(createdWallet);
-        if (!nextAddress) {
+      .then(async (createdWallet) => {
+        let resolvedAddress = extractWalletAddress(createdWallet);
+
+        // Crossmint can return undefined while its internal wallet state is still
+        // "in-progress" right after OTP verification. Retry briefly before failing.
+        for (
+          let attempt = 0;
+          !resolvedAddress && attempt < MAX_WALLET_RESOLVE_ATTEMPTS;
+          attempt += 1
+        ) {
+          await sleep(WALLET_RESOLVE_RETRY_MS * (attempt + 1));
+          const retriedWallet = await getOrCreateWallet({
+            chain: requestedCrossmintChain,
+            signer: {
+              type: "email",
+            },
+          } as Parameters<typeof getOrCreateWallet>[0]);
+          resolvedAddress = extractWalletAddress(retriedWallet);
+        }
+
+        if (!resolvedAddress) {
           throw new Error("failed to create wallet");
         }
+
         setWalletAddresses((previous) => ({
           ...previous,
-          [requestedWalletChain]: nextAddress,
+          [requestedWalletChain]: resolvedAddress,
         }));
       })
       .catch((cause) => {
