@@ -82,11 +82,11 @@ export function AuthGate(props: { children: React.ReactNode }) {
     );
   }
 
-  if (session.loading && !session.session) {
+  if ((session.loading || !session.session) && !session.error) {
     return (
       <div className="page-shell" style={{ minHeight: "100dvh", display: "grid", placeItems: "center" }}>
         <div className="surface" style={{ padding: 20 }}>
-          <strong>Loading...</strong>
+          <strong>setting up your wallet...</strong>
         </div>
       </div>
     );

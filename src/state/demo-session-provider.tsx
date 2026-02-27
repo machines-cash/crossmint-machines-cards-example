@@ -26,8 +26,9 @@ import {
 import type { SessionPayload, WalletChain } from "@/types/partner";
 
 const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
-const MAX_WALLET_RESOLVE_ATTEMPTS = 6;
+const MAX_WALLET_RESOLVE_ATTEMPTS = 14;
 const WALLET_RESOLVE_RETRY_MS = 500;
+const WALLET_BOOTSTRAP_POLL_MS = 1_200;
 
 type DemoSessionContextValue = {
   loading: boolean;
@@ -122,6 +123,7 @@ async function resolveWalletAddressWithRetries(input: {
       if (resolvedAddress) {
         return resolvedAddress;
       }
+      lastTransientError = new Error("wallet setup is still in progress");
     } catch (cause) {
       if (!isTransientWalletCreationError(cause)) {
         throw cause;
@@ -131,9 +133,9 @@ async function resolveWalletAddressWithRetries(input: {
   }
 
   if (lastTransientError) {
-    throw new Error("wallet setup is still in progress; please retry");
+    return null;
   }
-  throw new Error("failed to create wallet");
+  return null;
 }
 
 function DisabledDemoSessionProvider(
@@ -279,6 +281,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
             getOrCreateWallet(args as Parameters<typeof getOrCreateWallet>[0]),
           walletArgs,
         });
+        if (!resolvedAddress) {
+          return null;
+        }
         setWalletAddresses((previous) => ({
           ...previous,
           [requestedWalletChain]: resolvedAddress,
@@ -317,7 +322,6 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       }
       if (!activeWalletAddress) {
         setSession(null);
-        setError((previous) => previous ?? "wallet setup is still in progress; please retry");
         return;
       }
 
@@ -370,7 +374,25 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     }
 
     if (primaryWalletAddress) return;
-    void ensureWalletAddress();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const pollWalletBootstrap = async () => {
+      if (cancelled) return;
+      const resolvedAddress = await ensureWalletAddress();
+      if (cancelled) return;
+      if (resolvedAddress) return;
+      timer = setTimeout(() => {
+        void pollWalletBootstrap();
+      }, WALLET_BOOTSTRAP_POLL_MS);
+    };
+
+    void pollWalletBootstrap();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [
     authStatus,
     ensureWalletAddress,
