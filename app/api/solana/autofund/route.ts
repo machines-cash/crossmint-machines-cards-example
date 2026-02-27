@@ -14,10 +14,11 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  TokenAccountNotFoundError,
+  TokenInvalidAccountOwnerError,
   getAccount,
   getMint,
   getOrCreateAssociatedTokenAccount,
-  transferChecked,
 } from "@solana/spl-token";
 
 const SOLANA_MAINNET_CHAIN_ID = 900;
@@ -128,6 +129,59 @@ function buildMintInstruction(input: {
   });
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTokenAccountError(cause: unknown) {
+  if (
+    cause instanceof TokenAccountNotFoundError ||
+    cause instanceof TokenInvalidAccountOwnerError
+  ) {
+    return true;
+  }
+  const message =
+    cause instanceof Error ? cause.message.toLowerCase() : String(cause).toLowerCase();
+  return (
+    message.includes("tokenaccountnotfounderror") ||
+    message.includes("tokeninvalidaccountownererror") ||
+    message.includes("429")
+  );
+}
+
+async function getOrCreateAtaWithRetry(input: {
+  connection: Connection;
+  payer: Keypair;
+  mintAddress: PublicKey;
+  owner: PublicKey;
+  allowOwnerOffCurve: boolean;
+}) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const account = await getOrCreateAssociatedTokenAccount(
+        input.connection,
+        input.payer,
+        input.mintAddress,
+        input.owner,
+        input.allowOwnerOffCurve,
+        "confirmed",
+        { commitment: "confirmed" },
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      return account.address;
+    } catch (cause) {
+      lastError = cause;
+      if (!isRetryableTokenAccountError(cause) || attempt === 4) {
+        throw cause;
+      }
+      await wait(300 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 async function resolveDestinationTokenAccount(input: {
   connection: Connection;
   payer: Keypair;
@@ -156,18 +210,13 @@ async function resolveDestinationTokenAccount(input: {
     }
   }
 
-  const recipientAta = await getOrCreateAssociatedTokenAccount(
-    input.connection,
-    input.payer,
-    input.mintAddress,
-    recipientKey,
-    true,
-    "confirmed",
-    { commitment: "confirmed" },
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  );
-  return recipientAta.address;
+  return getOrCreateAtaWithRetry({
+    connection: input.connection,
+    payer: input.payer,
+    mintAddress: input.mintAddress,
+    owner: recipientKey,
+    allowOwnerOffCurve: true,
+  });
 }
 
 export async function POST(request: Request) {
@@ -214,17 +263,6 @@ export async function POST(request: Request) {
     );
     const [mintAddress] = PublicKey.findProgramAddressSync([mintSeed], programId);
 
-    const payerTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      signer,
-      mintAddress,
-      signer.publicKey,
-      false,
-      "confirmed",
-      { commitment: "confirmed" },
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    );
     const recipientTokenAccount = await resolveDestinationTokenAccount({
       connection,
       payer: signer,
@@ -250,7 +288,7 @@ export async function POST(request: Request) {
       programId,
       mintAddress,
       payer: signer.publicKey,
-      destinationTokenAccount: payerTokenAccount.address,
+      destinationTokenAccount: recipientTokenAccount,
       amount: amountBaseUnits,
     });
 
@@ -261,22 +299,7 @@ export async function POST(request: Request) {
       { commitment: "confirmed" },
     );
 
-    let transferTxHash = mintTxHash;
-    if (!payerTokenAccount.address.equals(recipientTokenAccount)) {
-      transferTxHash = await transferChecked(
-        connection,
-        signer,
-        payerTokenAccount.address,
-        mintAddress,
-        recipientTokenAccount,
-        signer,
-        amountBaseUnits,
-        decimals,
-        [],
-        { commitment: "confirmed" },
-        TOKEN_PROGRAM_ID,
-      );
-    }
+    const transferTxHash = mintTxHash;
 
     return NextResponse.json({
       ok: true,
