@@ -26,9 +26,10 @@ import {
 import type { SessionPayload, WalletChain } from "@/types/partner";
 
 const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
-const MAX_WALLET_RESOLVE_ATTEMPTS = 14;
-const WALLET_RESOLVE_RETRY_MS = 500;
-const WALLET_BOOTSTRAP_POLL_MS = 1_200;
+const MAX_WALLET_RESOLVE_ATTEMPTS = 6;
+const WALLET_RESOLVE_RETRY_MS = 350;
+const WALLET_RESOLVE_RETRY_MAX_MS = 900;
+const WALLET_BOOTSTRAP_POLL_MS = 600;
 
 type DemoSessionContextValue = {
   loading: boolean;
@@ -115,7 +116,7 @@ async function resolveWalletAddressWithRetries(input: {
 
   for (let attempt = 0; attempt < MAX_WALLET_RESOLVE_ATTEMPTS; attempt += 1) {
     if (attempt > 0) {
-      await sleep(WALLET_RESOLVE_RETRY_MS * attempt);
+      await sleep(Math.min(WALLET_RESOLVE_RETRY_MS * attempt, WALLET_RESOLVE_RETRY_MAX_MS));
     }
     try {
       const wallet = await input.getOrCreateWallet(input.walletArgs);
@@ -259,6 +260,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     const requestedCrossmintChain =
       requestedWalletChain === "evm" ? primaryEvmChain : primarySolanaChain;
     const signerEmail = extractCrossmintEmail(user);
+    if (!signerEmail) {
+      return null;
+    }
 
     setError(null);
 
@@ -282,6 +286,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
           walletArgs,
         });
         if (!resolvedAddress) {
+          return null;
+        }
+        if (!matchesWalletChainAddress(requestedWalletChain, resolvedAddress)) {
           return null;
         }
         setWalletAddresses((previous) => ({
