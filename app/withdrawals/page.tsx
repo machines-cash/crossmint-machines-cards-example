@@ -19,6 +19,7 @@ import type {
 
 const DEFAULT_WITHDRAWAL_AMOUNT_CENTS = 1_000;
 const MAX_WITHDRAWAL_RETRIES = 6;
+const SOLANA_DEVNET_RUSD_MINT = "CcuoBwMZJgupcdx81m3vYqBongw2PhhZ4yiYA2jo3K5";
 
 function resolveSolanaSourceChainId() {
   const parsed = Number(process.env.NEXT_PUBLIC_SOLANA_SOURCE_CHAIN_ID ?? 901);
@@ -118,12 +119,36 @@ export default function WithdrawalsPage() {
         : undefined,
     [walletChain],
   );
+  const selectedSourceTokenAddress = useMemo(() => {
+    const selectedAsset = assets.find(
+      (asset) => asset.ticker.toLowerCase() === selectedCurrency,
+    );
+    const selectedAssetNetwork = selectedAsset?.networks.find(
+      (network) => network.id.toLowerCase() === selectedNetwork,
+    );
+    const tokenContract = selectedAssetNetwork?.tokenContract?.trim();
+    if (tokenContract) {
+      return tokenContract;
+    }
+    if (
+      walletChain === "solana" &&
+      selectedCurrency === "rusd" &&
+      selectedNetwork === "solana" &&
+      SOLANA_SOURCE_CHAIN_ID === 901
+    ) {
+      return SOLANA_DEVNET_RUSD_MINT;
+    }
+    return undefined;
+  }, [assets, selectedCurrency, selectedNetwork, walletChain]);
   const source = useMemo(
     () =>
       walletChain === "solana"
-        ? { chainId: SOLANA_SOURCE_CHAIN_ID }
+        ? {
+            chainId: SOLANA_SOURCE_CHAIN_ID,
+            tokenAddress: selectedSourceTokenAddress,
+          }
         : undefined,
-    [walletChain],
+    [selectedSourceTokenAddress, walletChain],
   );
 
   const destinationOptions = useMemo(
@@ -210,6 +235,10 @@ export default function WithdrawalsPage() {
     setSuccess(null);
 
     try {
+      if (walletChain === "solana" && !source?.tokenAddress) {
+        throw new Error("Unable to resolve source token address for Solana.");
+      }
+
       const range = await client.getWithdrawalRange({
         source,
         destination: {
