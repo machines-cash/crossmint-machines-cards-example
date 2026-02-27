@@ -5,6 +5,8 @@ import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import {
   Keypair,
   PublicKey,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  SystemProgram,
   Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
@@ -62,10 +64,13 @@ async function fetchCollateralAccountV202(
 ): Promise<CollateralAccountLike> {
   const programAccounts = program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<unknown> }>;
 
-  if (!programAccounts.collateralV2) {
-    throw new Error("IDL is missing collateralV2 account. Update to Rain Solana v2.02 IDL.");
+  if (programAccounts.collateralV2) {
+    return programAccounts.collateralV2.fetch(collateralAddress) as Promise<CollateralAccountLike>;
   }
-  return programAccounts.collateralV2.fetch(collateralAddress) as Promise<CollateralAccountLike>;
+  if (programAccounts.collateral) {
+    return programAccounts.collateral.fetch(collateralAddress) as Promise<CollateralAccountLike>;
+  }
+  throw new Error("IDL is missing collateral/collateralV2 account. Update to Rain Solana v2.02 IDL.");
 }
 
 async function fetchCollateralSignatureAccount(
@@ -74,10 +79,13 @@ async function fetchCollateralSignatureAccount(
 ): Promise<{ signers: PublicKey[] } | null> {
   const programAccounts = program.account as unknown as Record<string, { fetchNullable?: (key: PublicKey) => Promise<unknown> }>;
 
-  if (!programAccounts.collateralAdminSignaturesV2?.fetchNullable) {
-    throw new Error("IDL is missing collateralAdminSignaturesV2. Update to Rain Solana v2.02 IDL.");
+  if (programAccounts.collateralAdminSignaturesV2?.fetchNullable) {
+    return programAccounts.collateralAdminSignaturesV2.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
   }
-  return programAccounts.collateralAdminSignaturesV2.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
+  if (programAccounts.collateralAdminSignatures?.fetchNullable) {
+    return programAccounts.collateralAdminSignatures.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
+  }
+  throw new Error("IDL is missing collateralAdminSignatures/collateralAdminSignaturesV2.");
 }
 
 async function submitCollateralSignatureV202(options: {
@@ -134,6 +142,8 @@ async function submitCollateralSignatureV202(options: {
         collateral: options.collateralAddress,
         collateralAdminSignatures: collateralSignatureAddress,
         rentPayer: options.sender.publicKey,
+        instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        systemProgram: SystemProgram.programId,
       },
     );
 
@@ -261,10 +271,16 @@ export async function executeSolanaMultisigWithdrawalV202(input: MultisigExecute
       asset: mintAddress,
       collateralTokenAccount: sourceTokenAccount,
       receiverTokenAccount: destinationTokenAccount.address,
+      collateralAuthority: PublicKey.findProgramAddressSync(
+        [Buffer.from("CollateralAuthority"), collateralAddress.toBuffer()],
+        program.programId,
+      )[0],
       coordinator: collateralAccount.coordinator,
       collateral: collateralAddress,
       collateralAdminSignatures: collateralSignatureAddress,
       tokenProgram: TOKEN_PROGRAM_ID,
+      instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+      systemProgram: SystemProgram.programId,
     },
   );
 
