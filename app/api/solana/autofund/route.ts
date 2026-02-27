@@ -33,22 +33,40 @@ const requestSchema = z.object({
 });
 
 function toErrorMessage(cause: unknown) {
-  if (cause instanceof Error && cause.message) {
-    return cause.message;
+  if (cause instanceof Error && cause.message?.trim()) {
+    return cause.message.trim();
   }
   if (
     cause &&
     typeof cause === "object" &&
     "message" in cause &&
-    typeof (cause as { message?: unknown }).message === "string"
+    typeof (cause as { message?: unknown }).message === "string" &&
+    (cause as { message: string }).message.trim()
   ) {
-    return (cause as { message: string }).message;
+    return (cause as { message: string }).message.trim();
+  }
+  if (cause && typeof cause === "object") {
+    const record = cause as Record<string, unknown>;
+    const parts = [
+      typeof record.name === "string" ? record.name : null,
+      typeof record.code === "string" || typeof record.code === "number"
+        ? `code=${String(record.code)}`
+        : null,
+      typeof record.error === "string" ? record.error : null,
+    ].filter((value): value is string => Boolean(value));
+    if (parts.length > 0) {
+      return parts.join(" ");
+    }
   }
   try {
-    return JSON.stringify(cause);
+    const serialized = JSON.stringify(cause);
+    if (serialized && serialized !== "{}" && serialized !== "null") {
+      return serialized;
+    }
   } catch {
-    return String(cause ?? "solana autofund failed");
+    // Ignore JSON serialization errors and continue with String fallback.
   }
+  return String(cause ?? "solana autofund failed");
 }
 
 function resolveRpcUrl(chainId: number) {
@@ -237,6 +255,7 @@ export async function POST(request: Request) {
       errors: [],
     });
   } catch (cause) {
+    console.error("solana_autofund_failed", cause);
     return NextResponse.json(
       {
         ok: false,
