@@ -105,6 +105,10 @@ type SingleSignerPreparedTransaction = {
   recentBlockhash: string;
 };
 
+type MultisigExecutionResult = {
+  transactionSignature?: string;
+};
+
 async function prepareSingleSignerTransaction(input: {
   chainId: number;
   programAddress: string;
@@ -154,6 +158,59 @@ async function prepareSingleSignerTransaction(input: {
   }
 
   return parsed.data;
+}
+
+async function executeMultisigTransaction(input: {
+  chainId: number;
+  programAddress: string;
+  depositAddress: string;
+  parameters: unknown[];
+  contractId?: string | null;
+  ownerAddress?: string;
+}) {
+  const response = await fetch("/api/solana/multisig-execute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  const text = await response.text();
+  let parsed:
+    | {
+        ok?: boolean;
+        summary?: string;
+        errors?: Array<{ message?: string }>;
+        data?: MultisigExecutionResult;
+      }
+    | null = null;
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as {
+        ok?: boolean;
+        summary?: string;
+        errors?: Array<{ message?: string }>;
+        data?: MultisigExecutionResult;
+      };
+    } catch {
+      throw new Error(`invalid multisig execution response (${response.status})`);
+    }
+  }
+
+  if (!response.ok || !parsed?.ok) {
+    const details = parsed?.errors
+      ?.map((error) => error.message)
+      .filter((value): value is string => Boolean(value))
+      .join("; ");
+    const summary =
+      parsed?.summary ?? `multisig execution failed (${response.status})`;
+    throw new Error(details ? `${summary}: ${details}` : summary);
+  }
+
+  return parsed.data ?? {};
 }
 
 export default function WithdrawalsPage() {
@@ -366,29 +423,106 @@ export default function WithdrawalsPage() {
           ownerAddress: walletAddress,
         });
 
-        const wallet = await getOrCreateWallet({
-          chain: "solana",
-          signer: { type: "email" },
-        });
-        if (!wallet) {
-          throw new Error("embedded solana wallet unavailable");
+        try {
+          const wallet = await getOrCreateWallet({
+            chain: "solana",
+            signer: { type: "email" },
+          });
+          if (!wallet) {
+            throw new Error("embedded solana wallet unavailable");
+          }
+
+          const solanaWallet = SolanaWallet.from(
+            wallet as Parameters<typeof SolanaWallet.from>[0],
+          );
+          const execution = await solanaWallet.sendTransaction({
+            serializedTransaction: prepared.serializedTransaction,
+          });
+
+          setSuccess(
+            `Withdrawal submitted and executed on Solana (${execution.hash ?? execution.transactionId}).`,
+          );
+        } catch (singleSignerExecutionError) {
+          const message =
+            singleSignerExecutionError instanceof Error
+              ? singleSignerExecutionError.message
+              : "single-signer execution failed";
+          throw new Error(message);
         }
-
-        const solanaWallet = SolanaWallet.from(
-          wallet as Parameters<typeof SolanaWallet.from>[0],
-        );
-        const execution = await solanaWallet.sendTransaction({
-          serializedTransaction: prepared.serializedTransaction,
-        });
-
-        setSuccess(
-          `Withdrawal submitted and executed on Solana (${execution.hash ?? execution.transactionId}).`,
-        );
       } else {
         setSuccess("Withdrawal submitted. Funds are now being processed.");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to create withdrawal.");
+      const causeMessage =
+        cause instanceof Error ? cause.message : "Unable to create withdrawal.";
+      const shouldFallbackToMultisig =
+        walletChain === "solana" &&
+        selectedNetwork === "solana" &&
+        /multisig collateral detected|invalid account discriminator/i.test(
+          causeMessage,
+        );
+
+      if (
+        shouldFallbackToMultisig &&
+        client &&
+        walletAddress &&
+        source &&
+        source.tokenAddress
+      ) {
+        try {
+          const multisigReadyWithdrawal = await createReadyWithdrawalWithRetry({
+            create: () =>
+              client.createWithdrawal({
+                amountCents: DEFAULT_WITHDRAWAL_AMOUNT_CENTS,
+                source,
+                destination: {
+                  currency: selectedCurrency,
+                  network: selectedNetwork,
+                  address: destinationAddress.trim(),
+                },
+              }),
+          });
+
+          const execution = multisigReadyWithdrawal.execution;
+          const parameters = multisigReadyWithdrawal.parameters as unknown[] | null;
+          if (
+            !execution ||
+            execution.callPath !== "solana_v2_02" ||
+            !execution.callTarget ||
+            !execution.collateralProxyAddress ||
+            !parameters ||
+            parameters.length !== 7
+          ) {
+            throw new Error(
+              "Unable to execute multisig withdrawal due to missing execution metadata.",
+            );
+          }
+
+          const multisigResult = await executeMultisigTransaction({
+            chainId: execution.chainId ?? SOLANA_SOURCE_CHAIN_ID,
+            programAddress: execution.callTarget,
+            depositAddress: execution.collateralProxyAddress,
+            parameters,
+            contractId: execution.contractId,
+            ownerAddress: walletAddress,
+          });
+
+          setSuccess(
+            `Withdrawal submitted and executed on Solana (${multisigResult.transactionSignature ?? "confirmed"}).`,
+          );
+          setError(null);
+          return;
+        } catch (multisigCause) {
+          setError(
+            multisigCause instanceof Error
+              ? multisigCause.message
+              : "Unable to execute Solana multisig withdrawal.",
+          );
+          return;
+        }
+      }
+
+      setError(causeMessage);
     } finally {
       setSubmitting(false);
     }

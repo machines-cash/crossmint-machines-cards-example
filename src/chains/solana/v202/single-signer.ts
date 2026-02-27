@@ -69,13 +69,58 @@ async function fetchSingleSignerCollateral(
   collateralAddress: PublicKey,
 ): Promise<SingleSignerCollateralLike> {
   const accounts = program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<unknown> }>;
+  const isInvalidDiscriminatorError = (error: unknown) =>
+    error instanceof Error && /Invalid account discriminator/i.test(error.message);
+
   if (accounts.singleSignerCollateral) {
-    return accounts.singleSignerCollateral.fetch(collateralAddress) as Promise<SingleSignerCollateralLike>;
+    try {
+      return await (accounts.singleSignerCollateral.fetch(
+        collateralAddress,
+      ) as Promise<SingleSignerCollateralLike>);
+    } catch (error) {
+      if (!isInvalidDiscriminatorError(error)) {
+        throw error;
+      }
+    }
   }
-  if (accounts.collateralV2) {
-    return accounts.collateralV2.fetch(collateralAddress) as Promise<SingleSignerCollateralLike>;
+
+  // If this address decodes as a collateral account, the contract is multisig.
+  if (accounts.collateral) {
+    try {
+      await accounts.collateral.fetch(collateralAddress);
+      throw new Error(
+        "multisig collateral detected; use multisig execution for this contract",
+      );
+    } catch (error) {
+      if (error instanceof Error && /multisig collateral detected/i.test(error.message)) {
+        throw error;
+      }
+      if (!isInvalidDiscriminatorError(error)) {
+        throw error;
+      }
+    }
   }
-  throw new Error("IDL is missing singleSignerCollateral/collateralV2 account. Update to v2.02 IDL.");
+
+  // Rain v2.02 multisig contracts use this discriminator for CollateralV2.
+  const COLLATERAL_V2_DISCRIMINATOR_HEX = "a556439dc778276f";
+  const accountInfo = await program.provider.connection.getAccountInfo(
+    collateralAddress,
+    "confirmed",
+  );
+  if (accountInfo && accountInfo.data.length >= 8) {
+    const discriminator = Buffer.from(accountInfo.data)
+      .subarray(0, 8)
+      .toString("hex");
+    if (discriminator === COLLATERAL_V2_DISCRIMINATOR_HEX) {
+      throw new Error(
+        "multisig collateral detected; use multisig execution for this contract",
+      );
+    }
+  }
+
+  throw new Error(
+    "single signer collateral account not found or IDL mismatch. Update to the correct v2.02 IDL.",
+  );
 }
 
 export async function executeSolanaSingleSignerWithdrawalV202(input: SingleSignerExecuteInput & { rpcUrl?: string }) {
