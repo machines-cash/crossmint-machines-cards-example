@@ -337,7 +337,7 @@ async function ensureDevnetSignerSolBalance(input: {
   signerPublicKey: PublicKey;
 }) {
   const minimumLamports = Math.floor(0.03 * LAMPORTS_PER_SOL);
-  const currentBalance = await input.connection.getBalance(
+  let currentBalance = await input.connection.getBalance(
     input.signerPublicKey,
     "confirmed",
   );
@@ -353,5 +353,15 @@ async function ensureDevnetSignerSolBalance(input: {
     await input.connection.confirmTransaction(signature, "confirmed");
   } catch {
     // Continue even if faucet is rate-limited; tx execution will surface a precise error.
+  }
+
+  currentBalance = await input.connection.getBalance(
+    input.signerPublicKey,
+    "confirmed",
+  );
+  if (currentBalance < minimumLamports) {
+    throw new Error(
+      `insufficient signer SOL on devnet for autofund (${input.signerPublicKey.toBase58()}); top up and retry`,
+    );
   }
 }
