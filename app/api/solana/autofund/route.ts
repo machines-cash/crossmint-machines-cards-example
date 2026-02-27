@@ -14,6 +14,7 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  getAccount,
   getMint,
   getOrCreateAssociatedTokenAccount,
   transferChecked,
@@ -127,6 +128,48 @@ function buildMintInstruction(input: {
   });
 }
 
+async function resolveDestinationTokenAccount(input: {
+  connection: Connection;
+  payer: Keypair;
+  mintAddress: PublicKey;
+  recipientAddress: string;
+}) {
+  const recipientKey = new PublicKey(input.recipientAddress);
+
+  // Rain may return a token account directly as depositAddress.
+  try {
+    const existingTokenAccount = await getAccount(
+      input.connection,
+      recipientKey,
+      "confirmed",
+      TOKEN_PROGRAM_ID,
+    );
+    if (!existingTokenAccount.mint.equals(input.mintAddress)) {
+      throw new Error("recipient token account mint mismatch");
+    }
+    return recipientKey;
+  } catch (cause) {
+    const message =
+      cause instanceof Error ? cause.message.toLowerCase() : String(cause).toLowerCase();
+    if (message.includes("mint mismatch")) {
+      throw cause;
+    }
+  }
+
+  const recipientAta = await getOrCreateAssociatedTokenAccount(
+    input.connection,
+    input.payer,
+    input.mintAddress,
+    recipientKey,
+    true,
+    "confirmed",
+    { commitment: "confirmed" },
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  return recipientAta.address;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -171,7 +214,6 @@ export async function POST(request: Request) {
     );
     const [mintAddress] = PublicKey.findProgramAddressSync([mintSeed], programId);
 
-    const recipientOwner = new PublicKey(parsed.recipientAddress);
     const payerTokenAccount = await getOrCreateAssociatedTokenAccount(
       connection,
       signer,
@@ -183,17 +225,12 @@ export async function POST(request: Request) {
       TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
-    const recipientTokenAccount = await getOrCreateAssociatedTokenAccount(
+    const recipientTokenAccount = await resolveDestinationTokenAccount({
       connection,
-      signer,
+      payer: signer,
       mintAddress,
-      recipientOwner,
-      true,
-      "confirmed",
-      { commitment: "confirmed" },
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    );
+      recipientAddress: parsed.recipientAddress,
+    });
 
     let decimals = DEFAULT_DECIMALS;
     try {
@@ -225,13 +262,13 @@ export async function POST(request: Request) {
     );
 
     let transferTxHash = mintTxHash;
-    if (!payerTokenAccount.address.equals(recipientTokenAccount.address)) {
+    if (!payerTokenAccount.address.equals(recipientTokenAccount)) {
       transferTxHash = await transferChecked(
         connection,
         signer,
         payerTokenAccount.address,
         mintAddress,
-        recipientTokenAccount.address,
+        recipientTokenAccount,
         signer,
         amountBaseUnits,
         decimals,
