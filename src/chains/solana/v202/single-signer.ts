@@ -65,10 +65,7 @@ async function fetchSingleSignerCollateral(
   if (accounts.collateralV2) {
     return accounts.collateralV2.fetch(collateralAddress) as Promise<SingleSignerCollateralLike>;
   }
-  if (accounts.collateral) {
-    return accounts.collateral.fetch(collateralAddress) as Promise<SingleSignerCollateralLike>;
-  }
-  throw new Error("IDL is missing singleSignerCollateral account. Update to v2.02 IDL.");
+  throw new Error("IDL is missing singleSignerCollateral/collateralV2 account. Update to v2.02 IDL.");
 }
 
 export async function executeSolanaSingleSignerWithdrawalV202(input: SingleSignerExecuteInput & { rpcUrl?: string }) {

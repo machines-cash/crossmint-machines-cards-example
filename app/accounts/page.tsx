@@ -17,7 +17,12 @@ import {
   preferredNetworkForWalletChain,
 } from "@/lib/networks";
 import { useDemoSession } from "@/state/demo-session-provider";
-import type { DepositAsset, DepositIntent, PartnerCard } from "@/types/partner";
+import type {
+  DepositAsset,
+  DepositIntent,
+  PartnerCard,
+  WalletChain,
+} from "@/types/partner";
 
 type CardLimitFrequency =
   | "perAuthorization"
@@ -115,12 +120,28 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function shouldAttemptAutofund(input: { currency: string; network: string }) {
-  return (
+function resolveAutofundMode(input: {
+  currency: string;
+  network: string;
+  walletChain: WalletChain | null | undefined;
+}): "evm" | "solana" | null {
+  const currency = input.currency.trim().toLowerCase();
+  const network = input.network.trim().toLowerCase();
+  const chain = input.walletChain ?? null;
+  if (currency !== "rusd") {
+    return null;
+  }
+  if (
+    chain === "evm" &&
     CROSSMINT_EVM_CHAIN === "base-sepolia" &&
-    input.currency.trim().toLowerCase() === "rusd" &&
-    input.network.trim().toLowerCase() === "base"
-  );
+    network === "base"
+  ) {
+    return "evm";
+  }
+  if (chain === "solana" && network === "solana") {
+    return "solana";
+  }
+  return null;
 }
 
 export default function AccountsPage() {
@@ -346,7 +367,9 @@ export default function AccountsPage() {
       const submitDeposit = async () =>
         client.createDeposit({
           currency: depositCurrency,
-          network: depositNetwork,
+          network: isNetworkSupportedForWallet(depositNetwork, walletChain)
+            ? depositNetwork
+            : preferredNetworkForWalletChain(walletChain),
           amount: depositAmount,
         });
 
@@ -365,10 +388,12 @@ export default function AccountsPage() {
       }
 
       let autofundRecipientAddress: string | null = null;
-      const shouldAutofund = shouldAttemptAutofund({
+      const autofundMode = resolveAutofundMode({
         currency: depositCurrency,
         network: depositNetwork,
-      }) && session?.wallet?.chain === "evm";
+        walletChain: session?.wallet?.chain ?? walletChain,
+      });
+      const shouldAutofund = Boolean(autofundMode);
 
       if (shouldAutofund) {
         autofundRecipientAddress =
@@ -379,20 +404,33 @@ export default function AccountsPage() {
           }));
       }
 
+      let autofundFailedMessage: string | null = null;
       if (shouldAutofund && autofundRecipientAddress) {
         try {
-          await createEmbeddedWalletAutofund({
-            getOrCreateWallet,
-            recipientAddress: autofundRecipientAddress,
-            amountDollars: 100,
-          });
+          if (autofundMode === "evm") {
+            await createEmbeddedWalletAutofund({
+              getOrCreateWallet,
+              recipientAddress: autofundRecipientAddress,
+              amountDollars: 100,
+            });
+          } else {
+            await createSolanaSandboxAutofund({
+              recipientAddress: autofundRecipientAddress,
+              amountDollars: 100,
+              chainId: createdDeposit.chainId,
+            });
+          }
         } catch (cause) {
-          void cause;
+          autofundFailedMessage =
+            cause instanceof Error ? cause.message : "sandbox auto-fund failed";
         }
       }
 
+      if (autofundFailedMessage) {
+        setError(`Deposit created, but auto-funding failed: ${autofundFailedMessage}`);
+      }
       setSuccess(
-        `Deposit created.${shouldAutofund ? " Added 100 rUSD to your deposit address." : ""}`,
+        `Deposit created.${shouldAutofund && !autofundFailedMessage ? " Added 100 rUSD to your deposit address." : ""}`,
       );
       await refresh();
     } catch (cause) {
@@ -737,4 +775,57 @@ async function createEmbeddedWalletAutofund(input: {
 
 function isHexHash(value: string | null | undefined): value is `0x${string}` {
   return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value);
+}
+
+async function createSolanaSandboxAutofund(input: {
+  recipientAddress: string;
+  amountDollars: number;
+  chainId: number | null;
+}): Promise<AutofundResponse> {
+  const response = await fetch("/api/solana/autofund", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      recipientAddress: input.recipientAddress,
+      amountDollars: input.amountDollars,
+      chainId: input.chainId,
+    }),
+  });
+
+  const text = await response.text();
+  let parsed:
+    | {
+      ok?: boolean;
+      summary?: string;
+      errors?: Array<{ message?: string }>;
+      data?: AutofundResponse;
+    }
+    | null = null;
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as {
+        ok?: boolean;
+        summary?: string;
+        errors?: Array<{ message?: string }>;
+        data?: AutofundResponse;
+      };
+    } catch {
+      throw new Error(`invalid solana autofund response (${response.status})`);
+    }
+  }
+
+  if (!response.ok || !parsed?.ok || !parsed.data) {
+    const details = parsed?.errors
+      ?.map((error) => error.message)
+      .filter((value): value is string => Boolean(value))
+      .join("; ");
+    const summary = parsed?.summary ?? `solana autofund failed (${response.status})`;
+    throw new Error(details ? `${summary}: ${details}` : summary);
+  }
+
+  return parsed.data;
 }

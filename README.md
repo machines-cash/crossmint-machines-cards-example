@@ -11,6 +11,7 @@ This quickstart shows a complete end-user flow:
 - Complete KYC + terms
 - Create and manage virtual cards
 - Add funds and submit withdrawals
+- Auto-fund sandbox deposits for rUSD (Base Sepolia + Solana devnet)
 
 ## Deploy
 
@@ -64,6 +65,11 @@ Open [http://localhost:3000](http://localhost:3000).
 - `MACHINES_PARTNER_API_KEY`
 - `MACHINES_PARTNER_DEFAULT_SCOPES`
 - `MACHINES_PARTNER_EXTERNAL_USER_PREFIX` (optional)
+- `SOLANA_RPC_URL` (default: `https://api.devnet.solana.com`)
+- `SOLANA_AUTOFUND_SECRET_KEY_BASE58` (required for Solana sandbox autofund)
+- `SOLANA_RUSD_MINT_PROGRAM_ADDRESS` (default: `HaJ8CaGUJ1w8CjqM2cvaMtTNXSZFhwtmKHeRkYBvEGjj`)
+- `SOLANA_RUSD_MINT_SEED` (default: `rUSD`)
+- `SOLANA_MULTISIG_COLLATERAL_ADMIN_PK` (required for Solana multisig withdrawal execution)
 
 ## Build and Tests
 

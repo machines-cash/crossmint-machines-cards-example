@@ -26,10 +26,10 @@ import {
 import type { SessionPayload, WalletChain } from "@/types/partner";
 
 const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
-const MAX_WALLET_RESOLVE_ATTEMPTS = 6;
-const WALLET_RESOLVE_RETRY_MS = 350;
-const WALLET_RESOLVE_RETRY_MAX_MS = 900;
-const WALLET_BOOTSTRAP_POLL_MS = 600;
+const MAX_WALLET_RESOLVE_ATTEMPTS = 3;
+const WALLET_RESOLVE_RETRY_MS = 250;
+const WALLET_RESOLVE_RETRY_MAX_MS = 750;
+const WALLET_BOOTSTRAP_POLL_MS = 450;
 
 type DemoSessionContextValue = {
   loading: boolean;
@@ -133,10 +133,13 @@ async function resolveWalletAddressWithRetries(input: {
     }
   }
 
-  if (lastTransientError) {
-    return null;
+  if (lastTransientError instanceof Error) {
+    throw lastTransientError;
   }
-  return null;
+  if (lastTransientError) {
+    throw new Error(getErrorMessage(lastTransientError) || "wallet setup timed out");
+  }
+  throw new Error("wallet setup timed out");
 }
 
 function DisabledDemoSessionProvider(
@@ -380,6 +383,10 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
+    if (error) {
+      return;
+    }
+
     if (primaryWalletAddress) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -402,6 +409,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     };
   }, [
     authStatus,
+    error,
     ensureWalletAddress,
     primaryWalletAddress,
   ]);

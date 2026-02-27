@@ -62,15 +62,10 @@ async function fetchCollateralAccountV202(
 ): Promise<CollateralAccountLike> {
   const programAccounts = program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<unknown> }>;
 
-  if (programAccounts.collateralV2) {
-    return programAccounts.collateralV2.fetch(collateralAddress) as Promise<CollateralAccountLike>;
+  if (!programAccounts.collateralV2) {
+    throw new Error("IDL is missing collateralV2 account. Update to Rain Solana v2.02 IDL.");
   }
-
-  if (programAccounts.collateral) {
-    return programAccounts.collateral.fetch(collateralAddress) as Promise<CollateralAccountLike>;
-  }
-
-  throw new Error("IDL is missing collateral account definitions");
+  return programAccounts.collateralV2.fetch(collateralAddress) as Promise<CollateralAccountLike>;
 }
 
 async function fetchCollateralSignatureAccount(
@@ -79,15 +74,10 @@ async function fetchCollateralSignatureAccount(
 ): Promise<{ signers: PublicKey[] } | null> {
   const programAccounts = program.account as unknown as Record<string, { fetchNullable?: (key: PublicKey) => Promise<unknown> }>;
 
-  if (programAccounts.collateralAdminSignaturesV2?.fetchNullable) {
-    return programAccounts.collateralAdminSignaturesV2.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
+  if (!programAccounts.collateralAdminSignaturesV2?.fetchNullable) {
+    throw new Error("IDL is missing collateralAdminSignaturesV2. Update to Rain Solana v2.02 IDL.");
   }
-
-  if (programAccounts.collateralAdminSignatures?.fetchNullable) {
-    return programAccounts.collateralAdminSignatures.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
-  }
-
-  return null;
+  return programAccounts.collateralAdminSignaturesV2.fetchNullable(signatureAddress) as Promise<{ signers: PublicKey[] } | null>;
 }
 
 async function submitCollateralSignatureV202(options: {
