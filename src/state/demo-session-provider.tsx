@@ -60,8 +60,78 @@ const PARTNER_PROXY_BASE_URL = "/api/partner/proxy";
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-function extractWalletAddress(wallet: unknown): string | null {
+function asAddressString(candidate: unknown): string | null {
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate.trim();
+  }
+  if (!candidate || typeof candidate !== "object") return null;
+  const record = candidate as Record<string, unknown>;
+  const address = record.address;
+  if (typeof address === "string" && address.trim()) {
+    return address.trim();
+  }
+  const toBase58 = record.toBase58;
+  if (typeof toBase58 === "function") {
+    try {
+      const value = toBase58.call(candidate);
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    } catch {
+      // Ignore conversion failures.
+    }
+  }
+  return null;
+}
+
+function extractSignerAddress(wallet: unknown): string | null {
   if (!wallet || typeof wallet !== "object") return null;
+
+  const walletRecord = wallet as Record<string, unknown>;
+  const signer = walletRecord.signer;
+  const config = walletRecord.config;
+  const configRecord = config && typeof config === "object"
+    ? (config as Record<string, unknown>)
+    : null;
+  const adminSigner = configRecord?.adminSigner;
+  const adminSignerRecord = adminSigner && typeof adminSigner === "object"
+    ? (adminSigner as Record<string, unknown>)
+    : null;
+
+  const candidates: unknown[] = [
+    walletRecord.signerAddress,
+    walletRecord.adminSignerAddress,
+    signer,
+    signer && typeof signer === "object"
+      ? (signer as Record<string, unknown>).address
+      : null,
+    signer && typeof signer === "object"
+      ? (signer as Record<string, unknown>).publicKey
+      : null,
+    adminSigner,
+    adminSignerRecord?.address,
+    adminSignerRecord?.publicKey,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = asAddressString(candidate);
+    if (parsed && SOLANA_ADDRESS_PATTERN.test(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function extractWalletAddress(wallet: unknown, chain: WalletChain): string | null {
+  if (!wallet || typeof wallet !== "object") return null;
+
+  if (chain === "solana") {
+    // For Solana smart wallets, Rain admin/signer must be the embedded signer
+    // address, not the smart wallet PDA address.
+    return extractSignerAddress(wallet);
+  }
+
   const record = wallet as Record<string, unknown>;
   const candidates = [record.address, record.walletAddress, record.publicKey];
   for (const candidate of candidates) {
@@ -111,6 +181,7 @@ async function sleep(ms: number) {
 async function resolveWalletAddressWithRetries(input: {
   getOrCreateWallet: (args: unknown) => Promise<unknown>;
   walletArgs: unknown;
+  walletChain: WalletChain;
 }) {
   let lastTransientError: unknown = null;
 
@@ -120,7 +191,7 @@ async function resolveWalletAddressWithRetries(input: {
     }
     try {
       const wallet = await input.getOrCreateWallet(input.walletArgs);
-      const resolvedAddress = extractWalletAddress(wallet);
+      const resolvedAddress = extractWalletAddress(wallet, input.walletChain);
       if (resolvedAddress) {
         return resolvedAddress;
       }
@@ -243,7 +314,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
   const ensureWalletAddress = useCallback(async (): Promise<string | null> => {
     if (authStatus !== "logged-in") return null;
     if (primaryWalletAddress) return primaryWalletAddress;
-    const walletFromContext = extractWalletAddress(crossmintWallet);
+    const walletFromContext = extractWalletAddress(crossmintWallet, walletChain);
     if (walletFromContext && matchesWalletChainAddress(walletChain, walletFromContext)) {
       setWalletAddresses((previous) => ({
         ...previous,
@@ -287,6 +358,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
           getOrCreateWallet: (args) =>
             getOrCreateWallet(args as Parameters<typeof getOrCreateWallet>[0]),
           walletArgs,
+          walletChain: requestedWalletChain,
         });
         if (!resolvedAddress) {
           return null;
@@ -300,6 +372,9 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
         }));
         return resolvedAddress;
       } catch (cause) {
+        if (isTransientWalletCreationError(cause)) {
+          return null;
+        }
         const message = getErrorMessage(cause) || "failed to create embedded wallet";
         setError(message);
         return null;
