@@ -26,7 +26,7 @@ import {
 import type { SessionPayload, WalletChain } from "@/types/partner";
 
 const WALLET_CHAIN_STORAGE_KEY = "machines.crossmint.walletChain";
-const MAX_WALLET_RESOLVE_ATTEMPTS = 3;
+const MAX_WALLET_RESOLVE_ATTEMPTS = 6;
 const WALLET_RESOLVE_RETRY_MS = 250;
 const WALLET_RESOLVE_RETRY_MAX_MS = 750;
 const WALLET_BOOTSTRAP_POLL_MS = 450;
@@ -168,6 +168,10 @@ function isTransientWalletCreationError(cause: unknown) {
     message.includes("receiving end does not exist") ||
     message.includes("user rejected the request") ||
     message.includes("in-progress") ||
+    message.includes("in progress") ||
+    message.includes("still in progress") ||
+    message.includes("wallet with locator") ||
+    message.includes("not found") ||
     message.includes("wallet is not loaded") ||
     message.includes("network") ||
     message.includes("timeout")
@@ -204,13 +208,9 @@ async function resolveWalletAddressWithRetries(input: {
     }
   }
 
-  if (lastTransientError instanceof Error) {
-    throw lastTransientError;
-  }
-  if (lastTransientError) {
-    throw new Error(getErrorMessage(lastTransientError) || "wallet setup timed out");
-  }
-  throw new Error("wallet setup timed out");
+  // Keep polling in the caller instead of surfacing hard UI errors while
+  // embedded wallet provisioning/signers are still warming up.
+  return null;
 }
 
 function DisabledDemoSessionProvider(
