@@ -82,11 +82,27 @@ export function AuthGate(props: { children: React.ReactNode }) {
     );
   }
 
-  if ((session.loading || !session.session) && !session.error) {
+  if (session.loading && !session.error) {
     return (
       <div className="page-shell" style={{ minHeight: "100dvh", display: "grid", placeItems: "center" }}>
         <div className="surface" style={{ padding: 20 }}>
           <strong>setting up your wallet...</strong>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session.session && !session.error) {
+    return (
+      <div className="page-shell" style={{ minHeight: "100dvh", display: "grid", placeItems: "center" }}>
+        <div className="surface stack" style={{ padding: 20, width: "min(600px, 100%)" }}>
+          <strong>Continue setup</strong>
+          <p className="muted" style={{ margin: 0 }}>
+            Your wallet is ready, but the session is not initialized yet.
+          </p>
+          <button type="button" className="btn btn-primary" onClick={() => void session.refreshSession()}>
+            retry
+          </button>
         </div>
       </div>
     );

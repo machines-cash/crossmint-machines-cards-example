@@ -169,6 +169,40 @@ function getErrorMessage(cause: unknown) {
   return "";
 }
 
+function extractEmailFromWallet(wallet: unknown): string | null {
+  if (!wallet || typeof wallet !== "object") return null;
+  const record = wallet as Record<string, unknown>;
+
+  const owner = record.owner;
+  if (typeof owner === "string" && owner.toLowerCase().startsWith("email:")) {
+    const parsed = owner.slice("email:".length).trim().toLowerCase();
+    if (parsed.includes("@")) {
+      return parsed;
+    }
+  }
+
+  const config = record.config;
+  if (config && typeof config === "object") {
+    const adminSigner = (config as Record<string, unknown>).adminSigner;
+    if (adminSigner && typeof adminSigner === "object") {
+      const email = (adminSigner as Record<string, unknown>).email;
+      if (typeof email === "string" && email.includes("@")) {
+        return email.trim().toLowerCase();
+      }
+    }
+  }
+
+  const signer = record.signer;
+  if (signer && typeof signer === "object") {
+    const signerEmail = (signer as Record<string, unknown>).email;
+    if (typeof signerEmail === "string" && signerEmail.includes("@")) {
+      return signerEmail.trim().toLowerCase();
+    }
+  }
+
+  return null;
+}
+
 function isTransientWalletCreationError(cause: unknown) {
   const message = getErrorMessage(cause).toLowerCase();
   if (!message) return false;
@@ -310,14 +344,14 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
 
   const resolveExternalUserId = useCallback(
     (fallbackWalletAddress: string) => {
-      const email = extractCrossmintEmail(user);
+      const email = extractCrossmintEmail(user) ?? extractEmailFromWallet(crossmintWallet);
       return buildExternalUserId({
         email,
         walletAddress: fallbackWalletAddress,
         prefix: process.env.NEXT_PUBLIC_MACHINES_PARTNER_EXTERNAL_USER_PREFIX,
       });
     },
-    [user],
+    [crossmintWallet, user],
   );
 
   const ensureWalletAddress = useCallback(async (): Promise<string | null> => {
@@ -331,9 +365,6 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
       }));
       return walletFromContext;
     }
-    if (crossmintWalletStatus === "in-progress") {
-      return null;
-    }
     const existingCreatePromise = walletCreatePromiseRef.current[walletChain];
     if (existingCreatePromise) {
       return existingCreatePromise;
@@ -342,7 +373,7 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     const requestedWalletChain = walletChain;
     const requestedCrossmintChain =
       requestedWalletChain === "evm" ? primaryEvmChain : primarySolanaChain;
-    const signerEmail = extractCrossmintEmail(user);
+    const signerEmail = extractCrossmintEmail(user) ?? extractEmailFromWallet(crossmintWallet);
 
     setError(null);
 
@@ -394,7 +425,6 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
   }, [
     authStatus,
     crossmintWallet,
-    crossmintWalletStatus,
     getOrCreateWallet,
     primaryEvmChain,
     primarySolanaChain,
