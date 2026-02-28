@@ -7,6 +7,55 @@ type RouteContext = {
   }>;
 };
 
+function shouldForceServerSolanaAdmin(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return false;
+  }
+  const payload = body as {
+    source?: { chainId?: unknown };
+    destination?: { network?: unknown };
+  };
+  const chainId = Number(payload.source?.chainId);
+  if (chainId === 900 || chainId === 901) {
+    return true;
+  }
+  const network =
+    typeof payload.destination?.network === "string"
+      ? payload.destination.network.trim().toLowerCase()
+      : "";
+  return network === "solana";
+}
+
+function sanitizeUpstreamBody(input: {
+  method: string;
+  pathSuffix: string;
+  contentType: string | null;
+  rawBody: string | undefined;
+}) {
+  const { method, pathSuffix, contentType, rawBody } = input;
+  if (!rawBody) {
+    return rawBody;
+  }
+
+  if (
+    method === "POST" &&
+    pathSuffix === "withdrawals" &&
+    contentType?.toLowerCase().includes("application/json")
+  ) {
+    try {
+      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+      if (shouldForceServerSolanaAdmin(parsed) && "adminAddress" in parsed) {
+        delete parsed.adminAddress;
+        return JSON.stringify(parsed);
+      }
+    } catch {
+      return rawBody;
+    }
+  }
+
+  return rawBody;
+}
+
 async function proxy(request: Request, context: RouteContext) {
   try {
     const { path } = await context.params;
@@ -52,10 +101,16 @@ async function proxy(request: Request, context: RouteContext) {
     }
 
     const method = request.method.toUpperCase();
-    const body =
+    const rawBody =
       method === "GET" || method === "HEAD" || method === "OPTIONS"
         ? undefined
         : await request.text();
+    const body = sanitizeUpstreamBody({
+      method,
+      pathSuffix,
+      contentType,
+      rawBody,
+    });
 
     const response = await fetch(upstreamUrl.toString(), {
       method,

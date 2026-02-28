@@ -390,7 +390,7 @@ export default function WithdrawalsPage() {
               network: selectedNetwork,
               address: destinationAddress.trim(),
             },
-            adminAddress: walletAddress ?? undefined,
+            adminAddress: walletChain === "solana" ? undefined : walletAddress ?? undefined,
           }),
       });
 
@@ -480,7 +480,7 @@ export default function WithdrawalsPage() {
                   network: selectedNetwork,
                   address: destinationAddress.trim(),
                 },
-                adminAddress: walletAddress ?? undefined,
+                adminAddress: walletChain === "solana" ? undefined : walletAddress ?? undefined,
               }),
           });
 
