@@ -70,6 +70,15 @@ function asAddressString(candidate: unknown): string | null {
   if (typeof address === "string" && address.trim()) {
     return address.trim();
   }
+  if (typeof address === "function") {
+    try {
+      const value = address.call(candidate);
+      const parsed = asAddressString(value);
+      if (parsed) return parsed;
+    } catch {
+      // Ignore function-based address lookup failures.
+    }
+  }
   const toBase58 = record.toBase58;
   if (typeof toBase58 === "function") {
     try {
@@ -334,9 +343,6 @@ function ActiveDemoSessionProvider({ children }: { children: React.ReactNode }) 
     const requestedCrossmintChain =
       requestedWalletChain === "evm" ? primaryEvmChain : primarySolanaChain;
     const signerEmail = extractCrossmintEmail(user);
-    if (!signerEmail) {
-      return null;
-    }
 
     setError(null);
 
