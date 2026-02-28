@@ -480,6 +480,7 @@ export default function WithdrawalsPage() {
                   network: selectedNetwork,
                   address: destinationAddress.trim(),
                 },
+                adminAddress: walletAddress ?? undefined,
               }),
           });
 

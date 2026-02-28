@@ -29,6 +29,7 @@ type CollateralAccountLike = {
   coordinator: PublicKey;
   adminFundsNonce?: number;
   nonce?: number;
+  admins?: PublicKey[];
 };
 
 type CoordinatorAccountLike = {
@@ -207,6 +208,17 @@ export async function executeSolanaMultisigWithdrawalV202(input: MultisigExecute
   const nonce = collateralAccount.adminFundsNonce ?? collateralAccount.nonce;
   if (typeof nonce !== "number") {
     throw new Error("collateral nonce is missing");
+  }
+  if (
+    Array.isArray(collateralAccount.admins) &&
+    collateralAccount.admins.length > 0 &&
+    !collateralAccount.admins.some((admin) => admin.equals(sender.publicKey))
+  ) {
+    throw new Error(
+      `signer ${sender.publicKey.toBase58()} is not a collateral admin (admins: ${collateralAccount.admins
+        .map((admin) => admin.toBase58())
+        .join(", ")})`,
+    );
   }
 
   const withdrawRequest: WithdrawCollateralRequest = {

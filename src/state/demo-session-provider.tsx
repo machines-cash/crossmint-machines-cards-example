@@ -132,12 +132,34 @@ function extractSignerAddress(wallet: unknown): string | null {
   return null;
 }
 
+function extractSolanaSmartWalletAddress(wallet: unknown): string | null {
+  if (!wallet || typeof wallet !== "object") return null;
+  const walletRecord = wallet as Record<string, unknown>;
+  const candidates = [
+    walletRecord.address,
+    walletRecord.walletAddress,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && SOLANA_ADDRESS_PATTERN.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
 function extractWalletAddress(wallet: unknown, chain: WalletChain): string | null {
   if (!wallet || typeof wallet !== "object") return null;
 
   if (chain === "solana") {
-    // For Solana smart wallets, Rain admin/signer must be the embedded signer
-    // address, not the smart wallet PDA address.
+    // Prefer the Solana smart wallet owner/PDA address for session bootstrap so
+    // contract creation follows the single-signer path. Fall back to signer for
+    // legacy wallets that do not expose the smart wallet address yet.
+    const smartWalletAddress = extractSolanaSmartWalletAddress(wallet);
+    if (smartWalletAddress) {
+      return smartWalletAddress;
+    }
     return extractSignerAddress(wallet);
   }
 
