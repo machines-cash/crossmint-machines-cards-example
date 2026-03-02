@@ -70,7 +70,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - `SOLANA_RUSD_MINT_PROGRAM_ADDRESS` (default: `HaJ8CaGUJ1w8CjqM2cvaMtTNXSZFhwtmKHeRkYBvEGjj`)
 - `SOLANA_RUSD_MINT_SEED` (default: `rUSD`)
 - `SOLANA_MULTISIG_COLLATERAL_ADMIN_PK` (required for Solana multisig withdrawal execution)
-- `RAIN_API_KEY` + `RAIN_BASE_URL` (optional fallback lookup used by Solana execute routes when caller sends proxy address instead of deposit address)
 
 ## Build and Tests
 

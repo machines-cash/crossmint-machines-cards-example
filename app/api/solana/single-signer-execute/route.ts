@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { executeSolanaSingleSignerWithdrawalV202 } from "@/chains/solana";
-import { resolveExecutionDepositAddress } from "@/lib/server/rain-contracts";
+import { resolveExecutionDepositAddress } from "@/lib/server/deposit-address-resolver";
 
 const requestSchema = z.object({
   chainId: z.union([z.literal(900), z.literal(901)]),
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       ownerAddress: parsed.ownerAddress,
       depositAddress: parsed.depositAddress,
       collateralProxyAddress: parsed.parameters[0],
+      authorization: request.headers.get("authorization"),
     });
 
     const result = await executeSolanaSingleSignerWithdrawalV202({

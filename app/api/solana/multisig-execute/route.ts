@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { executeSolanaMultisigWithdrawalV202 } from "@/chains/solana";
-import { resolveExecutionDepositAddress } from "@/lib/server/rain-contracts";
+import { resolveExecutionDepositAddress } from "@/lib/server/deposit-address-resolver";
 
 const parameterSchema = z.union([
   z.string(),
@@ -104,6 +104,7 @@ export async function POST(request: Request) {
       ownerAddress: parsed.ownerAddress,
       depositAddress: parsed.depositAddress,
       collateralProxyAddress: parameters[0],
+      authorization: request.headers.get("authorization"),
     });
 
     const result = await executeSolanaMultisigWithdrawalV202({

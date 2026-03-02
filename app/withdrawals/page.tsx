@@ -167,13 +167,19 @@ async function executeMultisigTransaction(input: {
   parameters: unknown[];
   contractId?: string | null;
   ownerAddress?: string;
+  sessionToken?: string | null;
 }) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (input.sessionToken) {
+    headers.Authorization = `Bearer ${input.sessionToken}`;
+  }
+
   const response = await fetch("/api/solana/multisig-execute", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers,
     body: JSON.stringify(input),
   });
 
@@ -214,7 +220,7 @@ async function executeMultisigTransaction(input: {
 }
 
 export default function WithdrawalsPage() {
-  const { client, walletAddress, walletChain, onboarding } = useDemoSession();
+  const { client, walletAddress, walletChain, onboarding, session } = useDemoSession();
   const { getOrCreateWallet } = useWallet();
   const setupLocked = onboarding.loading || onboarding.step !== "ready";
 
@@ -506,6 +512,7 @@ export default function WithdrawalsPage() {
             parameters,
             contractId: execution.contractId,
             ownerAddress: walletAddress,
+            sessionToken: session?.sessionToken,
           });
 
           setSuccess(
