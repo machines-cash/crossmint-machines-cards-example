@@ -17,6 +17,7 @@ import {
 } from "@solana/spl-token";
 import mainIdl from "@/chains/solana/idl/main.json";
 import type { Main } from "@/chains/solana/idl/main";
+import { resolveSolanaSigningDomainChainId } from "@/chains/solana/constants";
 
 const COLLATERAL_V2_DISCRIMINATOR = [165, 86, 67, 157, 199, 120, 39, 111];
 const COLLATERAL_ADMIN_SIGNATURES_V2_DISCRIMINATOR = [
@@ -180,5 +181,5 @@ export function parsePublicKey(value: string, fieldName: string) {
 }
 
 export function resolveDomainChainId(chainId: number) {
-  return BigInt(chainId);
+  return resolveSolanaSigningDomainChainId(chainId);
 }

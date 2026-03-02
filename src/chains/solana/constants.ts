@@ -1,5 +1,6 @@
 export const SOLANA_MAINNET_CHAIN_ID = 900;
 export const SOLANA_DEVNET_CHAIN_ID = 901;
+export const SOLANA_SIGNING_DOMAIN_CHAIN_ID = 900n;
 
 export const SOLANA_CHAIN_LABELS: Record<number, string> = {
   [SOLANA_MAINNET_CHAIN_ID]: "mainnet-beta",
@@ -8,4 +9,9 @@ export const SOLANA_CHAIN_LABELS: Record<number, string> = {
 
 export function isSolanaChainId(value: number) {
   return value === SOLANA_MAINNET_CHAIN_ID || value === SOLANA_DEVNET_CHAIN_ID;
+}
+
+export function resolveSolanaSigningDomainChainId(chainId: number) {
+  void chainId;
+  return SOLANA_SIGNING_DOMAIN_CHAIN_ID;
 }
